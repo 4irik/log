@@ -1,14 +1,13 @@
 # Создание идеального скринкаста работы с терминалом
 
-Недавно выложил свою реализацию [lisp-интерпретатора]
-(<https://github.com/4irik/lisphp>) написанного на PHP. И, чтобы можно было хотя
+Недавно выложил свою реализацию [lisp-интерпретатора](<https://github.com/4irik/lisphp>) 
+написанного на PHP. И, чтобы можно было хотя
 бы как-то посмотреть его работу ничего не запуская, решил прикрепить в readme
 скринкаст работы в REPL.
 
 Сразу покажу результат:
 
-[![asciicast](https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK.svg)]
-(<https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK>)
+[![asciicast](https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK.svg)](<https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK>)
 
 В принципе, в win11, уже всё для этого есть, но вводить текст без запинок
 опечаток и с постоянной скоростью оказалось не очень-то и просто. "Нужно отдать
@@ -186,8 +185,7 @@ while IFS= read -r line; do
 done < $FILE
 ```
 
-*Сам скрипт я закинул в [gist]
-(<https://gist.github.com/4irik/522ded4ac9b3a1f805087cd1ca9722ee>).
+*Сам скрипт я закинул в [gist](<https://gist.github.com/4irik/522ded4ac9b3a1f805087cd1ca9722ee>).
 Предложения по улушению принимаются!*
 
 Помимо имени файла, я добавил два опциональных параметра:
