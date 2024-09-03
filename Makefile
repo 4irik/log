@@ -8,8 +8,6 @@ check: ## Check markdonw files to compliance with rules
 	docker run --rm \
 		-v ./:/app \
 		-w /app \
-    	-e INPUT_RULES=/lint/rules/changelog.js \
-    	-e INPUT_CONFIG=/lint/config/changelog.yml \
     	avtodev/markdown-lint:v1.5.0 \
     	$(FILES)
 
@@ -17,8 +15,6 @@ fix: ## Fix markup in markdown files
 	docker run --rm \
 		-v ./:/app \
 		-w /app \
-    	-e INPUT_RULES=/lint/rules/changelog.js \
-    	-e INPUT_CONFIG=/lint/config/changelog.yml \
 		-e INPUT_FIX=true \
     	avtodev/markdown-lint:v1.5.0 \
     	$(FILES)
