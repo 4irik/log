@@ -531,4 +531,5 @@ failure: 2
 
 ---
 
-[Issue](https://github.com/4irik/log/issues/2) для комментариев.
+- [Issue](https://github.com/4irik/log/issues/2) для комментариев.
+- [Анонс](https://t.me/stdi0_h/31) в телеграм-канале.
