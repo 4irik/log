@@ -175,7 +175,7 @@ test: ## Run app tests
 	docker compose exec app lein test
 ```
 
-Заглянем в файл `core.glj`:
+Заглянем в файл `core.clj`:
 
 ```clj
 (ns patient.core)
@@ -215,7 +215,7 @@ run: ## Run application
 
 ### Редактор
 
-У меня уже стоял Emacs и даже был немного преднастроен, уже не помню для чего. Укажу часть `init.el` относящуюся к этому проекту:
+У меня уже стоял Emacs и даже был немного преднастроен. Уже не помню для чего. Укажу часть `init.el` относящуюся к этому проекту:
 
 ```lisp
 (use-package cider
@@ -253,14 +253,136 @@ M-x cider-connect RET 127.0.0.1 RET 9911 RET
 ```
 ![nRepl работает!](../assets/clojure-simple-web-app/repl-emacs-test.png)
 
-Отлично! Хорошо бы ещё не вводить эту строчку каждый раз когда нужен `nRepl`, но этим займёмся потом. 
+Отлично! Хорошо бы ещё не вводить эту строчку каждый раз когда нужен `REPL`, но этим займёмся потом. 
 
 ## Реализация
 
-Собственно, т.к. писать я всё собрался на Clojure и ClojureScript, то, легче будет если решать задачи постепенно. Пока я ещё не знаю ни как писать фронт ни как писать бэк. Хочу начать с бэка, т.к. он мне более понятен. А чтобы не заморачиваться с шаблонизацией и ресурсами буду делать REST-сервис.
+Собственно, т.к. писать я всё собрался на Clojure и ClojureScript, то, легче будет если решать задачи постепенно. Пока я ещё не знаю ни как писать фронт ни как писать бэк. Хочу начать с бэка, т.к. он мне более понятен (да и не будет ничего работать без него :D). 
 
-### REST-API
+Если поискать как можно на Clojure сделать web-сервис то можно найти и [примеры](https://github.com/chris-emerson/rest_demo) (к которым хорошо бы ещё иметь описание того что там и зачем) реализации и [библиотеки](https://github.com/metosin/reitit) которые многое на себя берут.
 
-Если поискать как можно на Clojure сделать REST-сервис то можно найти и [примеры](https://github.com/chris-emerson/rest_demo) реализации и [библиотеки](https://github.com/metosin/reitit) которые многое на себя берут.
+Мне хотелось бы собрать всё самому, так что в примеры я буду подглядывать а библиотеки, которые уже всё могут, использовать не буду, что бы, так сказать, лучше прочувствовать каково это.
 
-Мне хотелось бы собрать всё самому, так что в примеры я буду подглядывать а библиотеки которые уже всё могут использовать не буду, что бы, так сказать, лучше прочувствовать каково это.
+### Backend
+
+#### Minimal app
+
+Недолгий поиск привёл меня на страничку ["Введение в веб-разработку на Clojure"](https://grishaev.me/clj-book-web-1/). В прошлый раз [статья](https://grishaev.me/clj-repl-part-1/) этого автора мне уже помогла когда я делал для своего [REPL'а](https://github.com/4irik/lisphp) многострочный ввод (собственно и саму идею его сделать я оттуда почерпнул). Бегло прочитав статью решил что буду следовать ей.
+
+Напишем начальную реализацию приложения:
+
+*core.clj:*
+```clj
+;; ...
+
+(defn app
+  [request]
+  (let [{:keys [uri request-method]} request]
+    {:status 200
+     :headers {"Content-Type" "text/plain"}
+     :body (format "You requested %s %s"
+                   (name request-method)
+                   uri)}))
+```
+
+Чтобы проверить как эта функция работает нужно её скомпилировать, для этого ставлю курсор на последнюю скобку и нажимаю `C-x C-e`, затем перехожу в `REPL` (`C-c C-z`) и вызываем её:
+
+```clj
+patient.core> (app {:request-method :get :uri "/index.html"})
+```
+
+в ответ видим: 
+
+```clj
+{:status 200,
+ :headers {"Content-Type" "text/plain"},
+ :body "You requested get /index.html"}
+```
+
+Всё работает. Двигаемся дальше.
+
+#### Web-сервер
+
+Добавим в зависимости два пакета:
+
+*project.clj:*
+```clj
+;; ...
+:dependencies [[org.clojure/clojure "1.12.0"]
+               ;; base web-app
+               [ring/ring-core "1.12.2"]
+               ;; web-server
+               [ring/ring-jetty-adapter "1.12.2"]
+               ]
+```
+
+Чтобы их скачать нужно запустить `lein deps`. Добавим сразу эту команду в `Makefile`:
+
+```Makefile
+deps: ## Upload dependencies
+	docker compose exec app lein deps
+```
+
+Сделаем так, чтобы сервер стартовал при запуске нашего приложения через `lein`.
+
+*core.clj:*
+```clj
+;; ...
+
+(require '[ring.adapter.jetty :refer [run-jetty]])
+
+;; ...
+
+(defn -main
+  [& args]
+    (def server (run-jetty app {:port 8080 :join? false}))
+  )
+```
+
+прокинем порт `8080` из докера во вне:
+
+*docker-compose.yml:*
+```yml
+services:
+    app:
+        # ...      
+        ports:
+            - 9911:9911
+            - 8080:8080
+```
+
+и запустим наше приложение:
+
+```shell
+$ make restart && make run
+Retrieving org/apache/commons/commons-parent/52/commons-parent-52.pom from central
+Retrieving org/eclipse/jetty/jetty-project/11.0.21/jetty-project-11.0.21.pom from central
+Retrieving com/fasterxml/jackson/jackson-bom/2.17.0/jackson-bom-2.17.0.pom from central
+...
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Ошибок нет, и если зайти на `http://127.0.0.1:8080` то увидим:
+
+```text
+You requested get /
+```
+
+Всё работает, но сейчас, т.к. я сижу с мобильного интернета, мне более важно другое: идёт скачивание всякого, скачивается всякое, естественно, в директорию внутри docker-образа, изменения в которой не сохраняются между запусками. Так мы каждый раз будем всё скачивать. Надо что-то делать. Всё в [той же статье](https://grishaev.me/clj-repl-part-4/#nrepl-в-docker) есть целых два решения:
+
+1. прокинуть `/root/.m2` во вне
+2. в профиль `:docker` добавить параметр `:local-repo`
+
+Если пойти по второму пути то нужно будет всё и всегда запускать с указанием этого профиля, иначе всё что будет скачиваться будет скачиваться внутрь docker-контейнера. Первый же путь избавляет от необходимости помнить о параметрах запуска чего бы то ни было. Выбираем его.
+
+*docker-compose.yml:*
+```yml
+services:
+    app:
+        # ...
+        volumes:
+            - ./:/app
+            - ./.m2:/root/.m2
+```
