@@ -335,8 +335,7 @@ deps: ## Upload dependencies
 
 (defn -main
   [& args]
-    (def server (run-jetty app {:port 8080 :join? false}))
-  )
+  (run-jetty app {:port 8080 :join? true}))
 ```
 
 прокинем порт `8080` из докера во вне:
@@ -370,6 +369,10 @@ SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
 You requested get /
 ```
 
+Тут видно что функция `app` отработала вернув метод запроса и URL.
+
+**Небольшое отступление к инфраструктуре:**
+
 Всё работает, но сейчас, т.к. я сижу с мобильного интернета, мне более важно другое: идёт скачивание всякого, скачивается всякое, естественно, в директорию внутри docker-образа, изменения в которой не сохраняются между запусками. Так мы каждый раз будем всё скачивать. Надо что-то делать. Всё в [той же статье](https://grishaev.me/clj-repl-part-4/#nrepl-в-docker) есть целых два решения:
 
 1. прокинуть `/root/.m2` во вне
@@ -386,3 +389,164 @@ services:
             - ./:/app
             - ./.m2:/root/.m2
 ```
+
+*Теперь возвращаемся к нашему web-приложению*
+
+#### Роутинг
+
+Теперь, когда у нас что-то заработало, пора подумать о роутинге. Всё в той же статье автор описывает два варианта:
+
+1. Compojure
+2. Bidi
+
+И чуть ниже пишет:
+
+> По субъективным ощущениям, с Compojure легче начать. У библиотеки достойная документация с примерами.
+
+Мне этого достаточно. Выбираю Compojure.
+
+*project.clj:*
+
+```clj
+(defproject patient "0.1.0-SNAPSHOT"
+  ;; ...
+  :dependencies [
+                  ;; ...
+                  [compojure "1.7.1"]
+                ]
+  ;; ...
+```
+
+У меня уже есть в Makefile команда для установки зависимостей, так что не нужно лезть в сам контейнер, достаточно отправить в shell `make deps`.
+
+Напишем базовые роуты для нашего приложения. Т.к. у нас CRUD то, для работы с данными пациентов, нам нужно:
+
+1. [ ] - POST - для создания записи
+1. [ ] - GET - для просмотра
+1. [ ] - PUT - для внесения правок
+1. [ ] - DELETE - для удаления
+
+Так же надо просматривать список пациентов, это будет GET-запрос на роут `/`.
+
+Напишем функции-заглушки для этих методов:
+
+```clj
+(defn patient-list
+  [request]
+    {:status 200
+    :headers {"content-type" "text/plain"}
+    :body "list of patients"})
+
+(defn patient-view
+  [request]
+    {:status 200
+    :headers {"content-type" "text/plain"}
+    :body "view patient data"})
+
+;; ...
+```
+
+Так, пока мы не ушли далеко, немного упростим себе жизнь. Каждая функция возвращает одну и ту же структуру:
+
+```clj
+{
+  :status 200
+  :headers {"content-type" "text/plain"}
+  :body "some string"
+}
+```
+
+в которой только значение кейворда `:body` различается. Сделаем функцию-хэлпер:
+
+```clj
+(defn make-response
+  [response-string]
+   {:status 200
+   :headers {"content-type" "text/plain"}
+   :body response-string})
+
+(defn patient-list
+  [request]
+  (make-response "list of patients"))
+
+(defn patient-view
+  [request]
+  (make-response "view patient data"))
+
+;;...
+```
+
+Сразу же проверим её работу в REPL:
+
+```clj
+patient.core> (make-response 123)
+{:status 200, :headers {"content-type" "text/plain"}, :body 123}
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "list of patients"}
+```
+
+Compojure предоставляет маркос для написания роутов - `defroutes`, можно писать и без него, но получится немного длиннее (пример с использованием маркоса и без него можно найти в [документации](https://github.com/weavejester/compojure/wiki/Routes-In-Detail#combining-routes)). Опишем наши роуты:
+
+```clj
+(defroutes app
+  (GET "/"      request (patient-list request))
+  (GET "/patient/:id" request (patient-view request))
+  (POST "/patient" request (patient-create request))
+  (PUT "/patient/:id" request (patient-update request))
+  (DELETE "/patient/:id" request (patient-delete request))
+  page-404)
+```
+
+Хм.. у нас тут есть группа роутов, это те что начинаются на `/patient`, можно их объединить:
+
+```clj
+(defroutes app
+  (GET "/"      request (patient-list request))
+  (context "/patient" []
+           (POST "/" request (patient-create request))
+           (context "/:id{[0-9]+}" [id]
+                    (GET "/" request (patient-view request))
+                    (PUT "/" request (patient-update request))
+                    (DELETE "/" request (patient-delete request))
+                    )
+           )
+  page-404)
+```
+
+тут, как видно, добавился ещё 1 маркос - `context`, а так же, я указал что `id` - это только цифры и он будет доступен в нижестоящих роутах под кейвордом `:id`. Кстати, давайте выведем этот самый `:id` в ответах роутов:
+
+```clj
+(defn patient-view
+  [request]
+  (when-let [user-id (-> request :params :id)]
+  (make-response (format "view patient #%s data" user-id))))
+
+;; ...
+```
+
+Проверим:
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+view patient #1 data
+$ curl --request POST http://127.0.0.1:8080/patient
+new patient created
+```
+
+Как видно, я использовал шаблон `%s` вместо `%d`, это потому, что параметр `:id` - объект класса `String`, позже я, думаю, ещё вернусь к этому моменту и поменяю его на класс `Integer`.
+
+Итого, сейчас имеем:
+
+- [x] роуты для CRUD пациента
+- [x] подстановку `ID` пациента в роутах
+- [x] роут для показа списка пациентов
+- [x] обработку 404
+- [ ] роут для поиска пациентов
+- [ ] пагинация списка/поиска
+
+Оставшиеся два пункта пока оставлю, так же как и оставлю на потом работу с HATEOAS.
+
+~~HATEOAS~~
+
