@@ -430,6 +430,8 @@ services:
 
 Напишем функции-заглушки для этих методов:
 
+*core.clj:*
+
 ```clj
 (defn patient-list
   [request]
@@ -458,6 +460,8 @@ services:
 
 в которой только значение кейворда `:body` различается. Сделаем функцию-хэлпер:
 
+*core.clj:*
+
 ```clj
 (defn make-response
   [response-string]
@@ -476,7 +480,9 @@ services:
 ;;...
 ```
 
-Сразу же проверим её работу в REPL:
+Сразу же проверим её работу:
+
+*REPL:*
 
 ```clj
 patient.core> (make-response 123)
@@ -489,6 +495,8 @@ patient.core> (patient-list [])
 
 Compojure предоставляет маркос для написания роутов - `defroutes`, можно писать и без него, но получится немного длиннее (пример с использованием маркоса и без него можно найти в [документации](https://github.com/weavejester/compojure/wiki/Routes-In-Detail#combining-routes)). Опишем наши роуты:
 
+*core.clj:*
+
 ```clj
 (defroutes app
   (GET "/"      request (patient-list request))
@@ -500,6 +508,8 @@ Compojure предоставляет маркос для написания ро
 ```
 
 Хм.. у нас тут есть группа роутов, это те что начинаются на `/patient`, можно их объединить:
+
+*core.clj:*
 
 ```clj
 (defroutes app
@@ -516,6 +526,8 @@ Compojure предоставляет маркос для написания ро
 ```
 
 тут, как видно, добавился ещё 1 маркос - `context`, а так же, я указал что `id` - это только цифры и он будет доступен в нижестоящих роутах под кейвордом `:id`. Кстати, давайте выведем этот самый `:id` в ответах роутов:
+
+*core.clj:*
 
 ```clj
 (defn patient-view
@@ -550,3 +562,395 @@ new patient created
 
 ~~HATEOAS~~
 
+
+#### Хранение данных. Первый подход
+
+Итак. Надо как-то хранить данные. В задании у нас указан PostgreSql, и я даже добавил его уже в docker-compose.yml, но пока что я не готов с головой окунуться в работу с ним. Хочется пока что сделать заглушку которая будет всё хранить в памяти.
+
+Что, в итоге я хочу получить:
+
+- [ ] получение всех записей (?)
+- [ ] пагинация
+- [ ] поиск записей (?)
+- [ ] добавление новой записи
+- [ ] удаление записи
+- [ ] получение конкретной записи
+- [ ] обновление записи
+
+Я поставил знак вопроса в скобках у пунктов которые я не уверен что нужно делать или пока не знаю в каком виде я хочу их видеть.
+
+Нашёл [статью](https://adambard.com/blog/diy-nosql-in-clojure/) с описанием как ~~из го~~ подручными средствами сделать себе стор. 
+
+**Добавление новой записи**
+
+Пока что сделаю по аналогии без попытки вникнуть что там и как:
+
+*data.clj:*
+
+```clj
+(ns patient.data)
+
+;; "Tables"
+(def patients (atom []))
+
+;; "Schema"
+(def patient-keys [:fio :sex :date-of-birth :address :oms-number])
+
+(defn get-patients
+  []
+  @patients)
+
+(defn get-patient
+  [id]
+  (nth @patients id))
+
+(defn put-patient!
+  [patient]
+  (swap! patients (conj patients patient)))
+```
+
+Тут же попробуем это дело:
+
+*REPL:*
+
+```clj
+patient.core> (ns patient.data)
+nil
+patient.data> (get-patients)
+[]
+patient.data> (put-patient! {:fio "Иванов И.И" :sex true :date-of-birth "10.10.1910" :address "Some address 11" :oms-number "11223344"})
+Execution error (ClassCastException) at patient.data/put-patient! (form-init12253400653348000048.clj:19).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader 'app')
+```
+
+Ну, функция `get-patients` работает, а вот со вставкой, пока проблемы. Почитаем что там, вообще, в оригинальном посте делается при вставке:
+
+```clj
+(def MAX-TWITS 5)
+
+(def twits (atom []))
+
+(def twit-keys [:name :message :timestamp])
+(defn clean-twit [twit]
+  (-> twit
+    (select-keys twit-keys)
+    (assoc :timestamp (System/currentTimeMillis))))
+
+(defn put-twit! [twit]
+    (swap! twits #(take MAX-TWITS (conj % (clean-twit twit)))))
+```
+
+Так. Выдвинем предположения:
+
+- `take` берёт только `MAX-TWITS` из всего набора
+- `conj` - добавляет запись в конец вектора
+- `clean-twit` - добавляет в твит текущее время в миллисекундах
+ - `swap!` - обновляет вектор `twits`
+
+теперь выпишем непонятные вещи:
+
+- `conj % ...` - почему тут не `twits` и что значит `%`?
+- `#(take ...` - без понятия что эта запись означает.
+
+Я пытался найти что такое `%`, но ответ был в ответе на другой вопрос - что такое `#(...`.  Итак:
+
+- `#(take ...` - особая форма записи анонимной функции, можно было бы писать `(fn [arg ] ...)`
+- `%` - подстановка параметра в особой форме записи анонимной функции, если бы параметров было несколько то они бы обозначались цифрами - `%1` `%2` и т.д.
+
+Получается что `#(take...)` - анонимная функция, которая принимает 1 аргумент и её результат подставляется вместо в `twits`. Но откуда она берёт свой аргумент? Почитаем что там [пишут](https://clojuredocs.org/clojure.core/swap!) про `swap!`:
+
+> (swap! atom f)
+>
+> Atomically swaps the value of atom to be:
+> (apply f current-value-of-atom args).
+
+Т.е. наша анонимная функция будет применена к значению атома. Вот и ответ.
+
+Хорошо, попробуем переписать функцию `put-patient!`:
+
+*data.clj:*
+```clj
+(defn put-patient!
+  [patient]
+  (swap! patients #(conj % patient)))
+```
+
+*REPL:*
+
+```clj
+patient.data> (put-patient! {:fio "Иванов И.И" :sex true :date-of-birth "10.10.1910" :address "Some address 11" :oms-number "11223344"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}]
+```
+
+Работает! Вот только я всё равно не понял почему `(conj patients patient)` не работает а `(conj % patient)` делает то что нужно, пока буду предполагать что `%` - это `current-value-of-atom`, т.е. не сам атом а значение содержащееся в нём. Кстати, как это можно проверить?
+
+Нагуглил конструкцию `defer` (имеет сокращённую форму - `@`) которая возвращает значение атома. Проверим:
+
+*REPL:*
+
+```clj
+patient.data> (conj patients {:test "test"})
+Execution error (ClassCastException) at patient.data/eval12859 (form-init12253400653348000048.clj:92).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader 'app')
+patient.data> (conj @patients {:test "test"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}]
+```
+
+Ну что ж, предположение оказалось верным. Но если посмотреть примеры в документации, то, кажется, что можно сделать ещё проще:
+
+*REPL:*
+
+```clj
+patient.data> (swap! patients conj {:test "test"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}]
+```
+
+Так и запишем в нашей функции добавления новых записей:
+
+*data.clj:*
+
+```clj
+(defn put-patient!
+  [patient]
+  (swap! patients conj patient))
+```
+
+**Удаление записи**
+
+*data.clj:*
+
+```clj
+(defn del-patient!
+  [id]
+  (swap! patients ???))
+```
+ И что же тут можно сделать? Первая мысль - `filter`, но он работает только со значениями, а у меня индекс в векторе. Нашёл решение на [StackOverflow](https://stackoverflow.com/questions/1394991/clojure-remove-item-from-vector-at-a-specified-location) - использовать `subvec` и `concat`! Попробуем, сначала в общем виде:
+
+ *REPL:*
+
+ ```clj
+patient.data> (def m [0 1 2 3 4 5 6 7 8 9])
+#'patient.data/m
+patient.data> (#(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) m 2)
+(0 1 3 4 5 6 7 8 9)
+ ```
+
+ Работает, перенесём это в файл:
+
+ *data.clj:*
+
+ ```clj
+(defn del-patient!
+  [id]
+  (swap! patients #(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) id))
+```
+
+ *REPL:*
+
+ ```clj
+;; посмотрим что у нас уже хранится
+patient.data> (get-patients)
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}
+ {:fio "Петров П.П",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "Some address 222",
+  :oms-number "22334455"}]
+;; удалим запись под индексом `1`
+patient.data> (del-patient! 1)
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "Some address 222",
+  :oms-number "22334455"}]
+;; пропала запись `{:test "test"}`
+```
+
+*Тут наметилась проблема: если я удаляю запись то следующая за ней занимает её место, это создаст проблемы когда мы будем удалять записи через web-приложение потому как клиент не будет знать что **идентификаторы записей поменялись**, либо надо будет отправлять ему, каждый раз, новые идентификаторы.*
+
+Оставим её пока, вернёмся когда доделаем все CRUD операции. *Кажется, что это решение добавит мне потом работы, но уж очень хочется продвинуться хоть немного вперёд.*
+
+**Обновление записи**
+
+Кажется что обновление записи очень похоже на удаление, с той только разницей что вместо удаляемого элемента нужно подставить новый:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  [id patient]
+  (swap! patients #(vec (concat (subvec %1 0 %2) [%3] (subvec %1 (+ 1 %2)))) id patient))
+```
+
+*REPL:*
+
+```clj
+;; заменим адрес у пациента номер 2
+patient.data> (upd-patient! 1 {:fio "Петров П.П." :sex true :date-of-birth "11.11.1911" :address "new some address 333" :oms-number "22334455"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П.",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "new some address 333",
+  :oms-number "22334455"}]
+```
+
+Работает, но есть две вещи которые мне не нравятся:
+
+1. нужно указывать индекс пациента (проблема связанная с этим уже подсвечена в предыдущем параграфе)
+1. нужно слать полный набор данных
+
+Попробуем, пока что, разобраться с проблемой №2.
+
+Конструкция(?) `assoc` позволяет изменить значение в отображении (`map`):
+
+*data.clj:*
+
+```clj
+(defn change-patient-one-value!
+  "Изменят одно значение в записи пациента"
+  [item key new-value]
+  (assoc item key new-value))
+```
+
+*REPL:*
+
+```clj
+patient.data> (change-patient-one-value! {:test "test"} :test "new value")
+{:test "new value"}
+```
+
+Дальше, кажется что можно получить на вход мапу с изменениями и, через её редукцию, обновить данные пациента:
+
+*data.clj:*
+
+```clj
+(defn change-patient-values!
+  "Изменяет значения в записи пациента"
+  [patient new-values-map]
+  (reduce
+   #(let [key (%2 0) val (%2 1)] (change-patient-one-value! %1 key val))
+   patient
+   (seq new-values-map)))
+```
+
+*REPL:*
+
+```clj
+patient.data> (change-patient-values! {:t1 "test 1" :t2 "test 2" :t3 "test 3"} {:t1 "new test 1" :t3 "new test 3"})
+{:t1 "new test 1", :t2 "test 2", :t3 "new test 3"}
+```
+
+Осталось это всё собрать в одном месте:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  "Обновляет данные пациента (можно передавать только обновлённые поля)"
+  [id new-data-of-patient]
+  (swap!
+   patients
+   #(vec
+     (concat
+      (subvec %1 0 %2)
+      [(change-patient-values! %3 %4)]
+      (subvec %1 (+ 1 %2))))
+   id
+   (@patients id)
+   new-data-of-patient))
+```
+
+*REPL:*
+
+```clj
+patient.data> (upd-patient! 1 {:oms-number "556677"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П.",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "new some address 333",
+  :oms-number "556677"}]
+```
+
+**Получение данных конкретной записи**
+
+Я уже сделал этот метод, слизав его из статьи которую упомянул в начале:
+
+*data.clj:*
+
+```clj
+(defn get-patient
+  [id]
+  (nth @patients id))
+```
+
+но тогда я не понимал как это работает. Сейчас, уже зная про атомы и `defer` я не знаю только что делает `nth`. Заглянем в [документацию](https://clojuredocs.org/clojure.core/nth):
+
+> Returns the value at the index. get returns nil if index out of
+bounds, nth throws an exception unless not-found is supplied.
+
+т.к. если я укажу индекс не входящий в вектор то получу исключение. Кажется это то что нужно, я пока не знаю как буду его обрабатывать но мне хотелось бы знать что что-то идёт не так.
+
+*REPL:*
+
+```clj
+patient.data> (get-patient 0)
+{:fio "Иванов И.И",
+ :sex true,
+ :date-of-birth "10.10.1910",
+ :address "Some address 11",
+ :oms-number "11223344"}
+patient.data> (get-patient 2)
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (form-init12253400653348000048.clj:15).
+null
+```
+
+**Подведём итог**
+
+- [x] получение всех записей (?)
+- [ ] пагинация
+- [ ] поиск записей (?)
+- [x] добавление новой записи
+- [x] удаление записи
+- [x] получение конкретной записи
+- [x] обновление записи
+
+Из запланированного почти всё сделано. Оставшиеся два пункта я пока оставлю, хочется уже чтобы приложение заработало хоть в каком-то виде.
+
+
+<!-- #### Представление
+
+JSON/XML/HTML в зависимости от заголовка запроса -->
