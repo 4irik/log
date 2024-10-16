@@ -581,7 +581,7 @@ new patient created
 
 Нашёл [статью](https://adambard.com/blog/diy-nosql-in-clojure/) с описанием как ~~из го~~ подручными средствами сделать себе стор. 
 
-**Добавление новой записи**
+##### Добавление новой записи
 
 Пока что сделаю по аналогии без попытки вникнуть что там и как:
 
@@ -729,7 +729,7 @@ patient.data> (swap! patients conj {:test "test"})
   (swap! patients conj patient))
 ```
 
-**Удаление записи**
+##### Удаление записи
 
 *data.clj:*
 
@@ -794,7 +794,7 @@ patient.data> (del-patient! 1)
 
 Оставим её пока, вернёмся когда доделаем все CRUD операции. *Кажется, что это решение добавит мне потом работы, но уж очень хочется продвинуться хоть немного вперёд.*
 
-**Обновление записи**
+##### Обновление записи
 
 Кажется что обновление записи очень похоже на удаление, с той только разницей что вместо удаляемого элемента нужно подставить новый:
 
@@ -905,7 +905,7 @@ patient.data> (upd-patient! 1 {:oms-number "556677"})
   :oms-number "556677"}]
 ```
 
-**Получение данных конкретной записи**
+##### Получение данных конкретной записи
 
 Я уже сделал этот метод, слизав его из статьи которую упомянул в начале:
 
@@ -938,7 +938,7 @@ Execution error (IndexOutOfBoundsException) at patient.data/get-patient (form-in
 null
 ```
 
-**Подведём итог**
+##### Подведём итог
 
 - [x] получение всех записей (?)
 - [ ] пагинация
@@ -949,6 +949,86 @@ null
 - [x] обновление записи
 
 Из запланированного почти всё сделано. Оставшиеся два пункта я пока оставлю, хочется уже чтобы приложение заработало хоть в каком-то виде.
+
+#### Minimal app: Добавляем хранение данных.
+
+Начнём с добавления новой записи, потом, думаю, проверим как работает вывод всех пациентов и данных конкретного пациента, затем уже займёмся обновлением и удалением записей. Напишем список чтобы в конце с ним свериться:
+
+- [ ] добавление нового пациента
+- [ ] получение списка пациентов
+- [ ] пагинация списка пациентов
+- [ ] поиск пациентов
+- [ ] обновление данных пациента
+- [ ] удаление данных пациента
+
+##### Добавление
+
+Итак, для начала, хочется видеть что данные приходят. Для этого нужно взять данные из `body` из запроса, на помощь, как всегда, приходит StackOverflow, будем использовать `slurp` для того чтобы [превратить поток в строку](https://stackoverflow.com/a/68544475):
+
+*core.clj:*
+
+```clj
+(defn patient-create
+  [request]
+  (make-response (slurp (:body request))))
+```
+
+А на странице документации по `slurp` я нашёл [подсказку](https://clojuredocs.org/clojure.core/slurp#example-588dd268e4b01f4add58fe33) о том, как это всё можно проверить в REPL: 
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body ":test 123"}
+```
+
+```shell
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :date-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-number \"778899\""
+:fio "Сидоров С.С." :sex true :date-of-birth "01.01.1901" :address "sidorov s.s. address 1" :oms-number "778899"
+```
+
+Отлично!
+
+Теперь нужно эту строку превратить в мапу. К счастью, ответ [быстро нашёлся](https://stackoverflow.com/a/35707024):
+
+```clj
+patient.core> (clojure.edn/read-string "{:a 1 :b 2}")
+{:a 1, :b 2}
+```
+
+*core.clj:*
+
+```clj
+(require '[patient.data :as db])
+
+;; ...
+
+(defn patient-create
+  [request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+    (db/put-patient! patient-map))
+  (make-response nil))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+```
+
+```shell
+$ curl -D - --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :date-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-number \"778899\""
+HTTP/1.1 200 OK
+Date: Wed, 16 Oct 2024 10:36:01 GMT
+Content-Type: text/plain
+Content-Length: 0
+Server: Jetty(11.0.21)
+```
 
 
 <!-- #### Представление
