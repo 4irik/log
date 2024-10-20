@@ -984,6 +984,7 @@ null
 - [ ] получение списка пациентов
 - [ ] пагинация списка пациентов
 - [ ] поиск пациентов
+- [ ] получение данных пациента
 - [ ] обновление данных пациента
 - [ ] удаление данных пациента
 
@@ -1062,6 +1063,567 @@ Content-Length: 0
 Server: Jetty(11.0.21)
 ```
 
+##### Список всех пациентов
+
+Кажется, что нужно просто получить данные всех пациентов и вывести их в каком-то виде:
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (db/get-patients)))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 222")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 333")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body [{:test 123} {:test 222} {:test 333}]}
+```
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=ISO-8859-1"/>
+<title>Error 500 java.lang.IllegalArgumentException: No implementation of method: :write-body-to-stream of protocol: #&apos;ring.core.protocols/StreamableResponseBody found for class: clojure.lang.PersistentVector</title>
+```
+
+Похоже что нужно превратить вектор из отображений в строку:
+
+*REPL:*
+
+```clj
+patient.core> (str [{:test 123} {:test 222} {:test 333}])
+"[{:test 123} {:test 222} {:test 333}]"
+```
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (str db/get-patients)))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "patient.data$get_patients@185b5398"}
+```
+
+Хм... получилось немного не то на что я рассчитывал, наверное это потому что в `str` я передал не результат функции а саму функцию. 
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (str (db/get-patients))))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "[{:test 123} {:test 222} {:test 333}]"}
+```
+
+*shell:*
+
+```shell
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :^Cte-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-n
+umber \"778899\""
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Петров П.П.\" :sex true :date-of-birth \"10.10.1910\" :address \"petrov p.p. address 1\" :oms-number \"112233\""
+$ curl http://127.0.0.1:8080
+[{:fio "Сидоров С.С.", :sex true, :date-of-birth "01.01.1901", :address "sidorov s.s. address 1", :oms-number "778899"} {:fio "Петров П.П.", :sex true, :date-of-birth "10.10.1910", :address "petrov p.p. address 1", :oms-number "112233"}]
+```
+
+Хорошо, список пациентов, в каком-то виде уже есть.
+
+##### Получение данных конкретного пациента
+
+Тут действуем по аналогии с предыдущим пунктом:
+
+*core.clj:*
+
+```clj
+(defn patient-view
+  [request]
+  (let [patient-id (-> request :params :id)]
+    (let [patient (db/get-patient patient-id)]
+      (if patient
+        (make-response (str patient))
+        (page-404 [])))))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id 2}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "{:test 333}"}
+patient.core> (patient-view {:params {:id 3}})
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (data.clj:17).
+null
+```
+
+Так, не нравится мне что вместо 404 я вижу исключение. В прошлой главе я специально так сделал, чтобы стор кидал исключение если запись не найдена, тогда мне показалось, что при разработке было бы удобно получать исключение если не данные не найдены. Я так решил, потому как не был уверен то смогу понять где у меня вернулся `nil` потому что я что-то не так сделал или потому что данных нет в сторе. Сейчас же мне совершенно не хочется писать обработку исключений для случая который может часто встречаться. Переделаем стор чтобы он возвращал `nil` если ничего не найдено:
+
+*data.clj:*
+
+```clj
+(defn get-patient
+  "Возвращает запись пациента по его ID"
+  [id]
+  (get @patients id))
+```
+
+Теперь всё должно быть ок:
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id 1}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "{:test 222}"}
+patient.core> (patient-view {:params {:id 11}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+```
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+No such a page.
+```
+
+Так, это странно. Но если подумать, то:
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id "1"}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+```
+
+где-то выше я уже писал о том что `:id` - это объект класса `String`, вот и пришло время преобразовать его в `Integer`.
+
+В Compojure есть такая штука - [parameter coercion](https://github.com/weavejester/compojure/wiki/Destructuring-Syntax#parameter-coercion):
+
+*core.clj:*
+
+```clj
+;; ...
+
+(require '[compojure.coercions :refer [as-int]])
+
+;; ...
+
+(defn patient-view
+  [id]
+  (let [patient (db/get-patient id)]
+    (if patient
+      (make-response (str patient))
+      (page-404 []))))
+
+;; ...
+
+(defroutes app
+;; ...
+           (context "/:id{[0-9]+}" [id :<< as-int]
+                    (GET "/" [] (patient-view id))
+;; ...
+```
+
+Тут я сделал сразу две вещи:
+
+1. Передал в `patient-view` только нужные ей параметры
+1. Преобразовал `id` в `Integer` прямо в роуте 
+
+в обоих случаях изменения сделанные в роуте помогли разгрузить целевую функцию избавив её от необходимости совершать действия напрямую не связанные с её назначением.
+
+*Изначально я в роуте я написал `(GET "/" id (patient-view id))`, но вместо идентификатора передавалась мапа содержащая заголовок запроса. Пока не понял почему так.*
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+{:fio "Петров П.П.", :sex true, :date-of-birth "10.10.1910", :address "petrov p.p. address 1", :oms-number "112233"}
+```
+
+##### Обновление данных
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+    (db/upd-patient! id patient-map))
+  (make-response nil))
+
+;; ...
+
+(defroutes app
+;; ...
+                    (PUT "/" request (patient-update id request))
+;; ...
+```
+
+*REPL:*
+
+```clj
+;; добавим пациента
+patient.core> (patient-create {:body (into-array Byte/TYPE ":fio \"Sidorov\" :address \"sidorov s.s. address 1\"")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; проверим что добавилось
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :address \"sidorov s.s. address 1\"}"}
+;; изменим адрес
+patient.core> (patient-update 0 {:body (into-array Byte/TYPE ":address \"sidorov address 2\"")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; посмотрим, изменился ли адрес
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :address \"sidorov address 2\"}"}
+```
+
+Работает, но тут возникает вопрос - "А что если указанной записи не существует?". 
+
+*REPL:*
+
+```clj
+patient.core> (patient-update 10 {:body (into-array Byte/TYPE ":address \"sidorov address 3\"")})
+Execution error (IndexOutOfBoundsException) at patient.data/upd-patient! (data.clj:53).
+null
+```
+
+Можно было и в код заглянуть:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  ;; ...
+   (@patients id)
+  ;; ...
+```
+
+И тут же второй - "А как себя, в этом случае, поведёт PgSql?". Ответим на него:
+
+*shell:*
+
+```sql
+patient_db=# CREATE TABLE test_table (id serial primary key, data text not null);
+CREATE TABLE
+patient_db=# INSERT INTO test_table ("data") VALUES ('some value 1'), ('some value 2'), ('some value 3');
+INSERT 0 3
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  1 | some value 1
+  2 | some value 2
+  3 | some value 3
+(3 rows)
+
+patient_db=# UPDATE test_table SET data='111' WHERE id=1;
+UPDATE 1
+patient_db=# UPDATE test_table SET data='111' WHERE id=100;
+UPDATE 0
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  2 | some value 2
+  3 | some value 3
+  1 | 111
+(3 rows)
+```
+
+> [!NOTE]
+> За кулисами я добавил в `Makefile` строку:
+>
+> *Makefile:*
+>
+> ```Makefile
+> psql: ## PostgreSql shell
+> 	docker compose exec db psql -U postgres -d patient_db
+> ```
+
+Т.е. видно что ничего страшного не происходит, СУБД просто возвращает кол-во изменённых записей. 
+
+Т.к. я предполагаю что у меня слой хранения как-то связана с проектируемым доменом, то я не буду возвращать кол-во изменённых записей, а верну флаг того, удалось ли изменить запись или нет. Оба значения флага не говорят о какой либо ошибке, они оба нормальны, если будет какая-либо ошибка, то должно быть кинуто исключение.
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  "Обновляет данные пациента (можно передавать только обновлённые поля)"
+  [id new-data-of-patient]
+  (def patient (get-patient id))
+  (if (= nil patient)
+    false
+    (do
+      (swap!
+       patients
+       #(vec
+         (concat
+          (subvec %1 0 %2)
+          [(change-patient-values! %3 %4)]
+          (subvec %1 (+ 1 %2))))
+       id
+       patient
+       new-data-of-patient)
+      true)))
+```
+
+*REPL:*
+
+```clj
+patient.data> @patients
+[{:fio "Sidorov",
+  :sex true,
+  :date-of-birth "01.01.1901",
+  :address "sidorov address 2",
+  :oms-number "778899"}
+ {:fio "Petrov",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "sidorov address 3",
+  :oms-number "112233"}]
+patient.data> (upd-patient! 3 {:sex false})
+false
+patient.data> (upd-patient! 1 {:sex false})
+true
+patient.data> @patients
+[{:fio "Sidorov",
+  :sex true,
+  :date-of-birth "01.01.1901",
+  :address "sidorov address 2",
+  :oms-number "778899"}
+ {:fio "Petrov",
+  :sex false,
+  :date-of-birth "10.10.1910",
+  :address "sidorov address 3",
+  :oms-number "112233"}]
+```
+
+Как видно, всё обновляется.
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str "{" patient-raw "}")))
+  (if (db/upd-patient! id patient-map)
+    (make-response nil)
+    (page-404 [])))
+```
+
+*REPL:*
+
+```clj
+;; посмотрим данные пациента
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :sex true, :date-of-birth \"01.01.1901\", :address \"sidorov address 2\", :oms-number \"778899\"}"}
+;; имзеним у него пол
+patient.core> (patient-update 0 {:body (into-array Byte/TYPE ":sex false")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; удостоверимся что пол поменялся
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :sex false, :date-of-birth \"01.01.1901\", :address \"sidorov address 2\", :oms-number \"778899\"}"}
+;; изменим данные у несуществующего пациента
+patient.core> (patient-update 1000 {:body (into-array Byte/TYPE ":sex false")})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+;; как и ожидалось, мы увидили 404 (точнее ответ его заменяющий)
+```
+
+Теперь всё как надо. Остался только один момент: первые 2 строчки функци `patient-update` не относятся к её основному назначению:
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str "{" patient-raw "}")))
+  ;; ...
+```
+
+Функционал по вычленению данных пациента из запроса и формированию из них отображения мы можем вынести в [middleware](https://github.com/weavejester/compojure/wiki/Middleware):
+
+*core.clj:*
+
+```clj
+
+;; добавляем `wrap-routes`
+(require '[compojure.core :refer [GET POST PUT DELETE defroutes context wrap-routes]])
+
+;; ...
+
+(defn patient-create
+  [patient-data]
+  (db/put-patient! patient-data)
+  (make-response nil))
+
+(defn patient-update
+  [id patient-data]
+  (if (db/upd-patient! id patient-data)
+    (make-response nil)
+    (page-404 [])))
+
+(defn wrap-patient-data
+  [handler]
+  (fn
+    [request]
+    (let
+        [patient-raw (slurp (:body request))
+         patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+      (handler (assoc request :patient-data patient-map)))))
+
+(defroutes app
+  ;; ...
+           (->
+            (POST "/" {:keys [patient-data]} (patient-create patient-data))
+            (wrap-routes wrap-patient-data))
+            ;; ... 
+                    (->
+                     (PUT "/" {:keys [patient-data]} (patient-update id patient-data))
+                     (wrap-routes wrap-patient-data))  
+                     ;; ...
+  )
+```
+
+Как видно, я, заодно, исправил и код функции `patient-create`.
+
+Сразу скажу что к записи роутов вида `(-> (...) (...))` я пришёл не сразу. Сначала я писал так:
+
+```clj
+(defroutes app
+  ;; ...
+           (wrap-patient-data
+            (POST "/" {:keys [patient-data]} (patient-create patient-data)))
+            ;; ... 
+                    (wrap-patient-data
+                     (PUT "/" {:keys [patient-data]} (patient-update id patient-data)))  
+                     ;; ...
+  )
+```
+
+но у меня были проблемы с методом `PUT` - в функицю `patient-update` значение параметра `id` передавалось как следует а вот `patient-data` был пустым отображением. Расставив принты я выяснил что middleware `wrap-patient-data`, в случае с `PUT`, вызывается дважды. Сначала я не понимал почему так, но потом вспомнил:  middleware применяется до того как проверится подходит ли роут к запросу:
+
+> If you want middleware to be applied only when a route matches ...
+
+Избежать этого позволяет функция `wrap-routes` вкупе с макросом `->` позволяющим сделать цепочку вызовов.
+
+##### Удаление
+
+Тут всё просто, но есть одна загвоздка:
+
+*REPL:*
+
+```clj
+patient.data> (get-patients)
+[{:test "1"} {:test "2"} {:test "3"}]
+patient.data> (del-patient! 5)
+Execution error (IndexOutOfBoundsException) at patient.data/del-patient!$fn (form-init4821922077780103475.clj:27).
+null
+```
+
+Сейчас мне ничего с этим делать не хочется, сделаю, пока что, проверку наличия записи в обработчике роута:
+
+*core.clj:*
+
+```clj
+(defn patient-delete
+  [id]
+  (if (db/get-patient id)
+    (do
+      (db/del-patient! id)
+      (make-response nil))
+    (page-404 [])))
+
+;; ...
+
+(defroutes app
+  ;; ...
+  (context "/patient" []
+           ;; ...
+           (context "/:id{[0-9]+}" [id :<< as-int]
+                    ;; ...
+                    (DELETE "/" [] (patient-delete id))))
+  ;; ...
+  )
+```
+
+*shell:*
+
+```shell
+# посмотрим весь список 
+$ curl http://127.0.0.1:8080
+[{:fio "Петров П.П.", :sex true} {:fio "Сидоров С.С.", :sex true} {:fio "Иванов И.И.", :sex true}]
+# удалим среднюю запись
+$ curl --request DELETE http://127.0.0.1:8080/patient/1
+# как видим записей осталось две
+$ curl http://127.0.0.1:8080
+[{:fio "Петров П.П.", :sex true} {:fio "Иванов И.И.", :sex true}]
+# попробуем удалить несуществующую запись
+$ curl --request DELETE http://127.0.0.1:8080/patient/10
+No such a page.
+```
+
+##### Итоги
+
+Смотрим что реализовано:
+
+- [x] добавление нового пациента
+- [x] получение списка пациентов
+- [ ] пагинация списка пациентов
+- [ ] поиск пациентов
+- [x] получение данных пациента
+- [x] обновление данных пациента
+- [x] удаление данных пациента
+
+Позже вернёмся к этому чек-листку, как, впрочем, и другим, а сейчас займёмся следующей частью нашего web-приложения!
 
 <!-- #### Представление
 
