@@ -1,8 +1,12 @@
-# Пишем простое web-CRUD-приложение на Clojure
+# Пишем простое web-приложение на Clojure
+
+Давно задумывался о том чтобы написать что-нибудь на чём-то вроде Lisp (кажется, с тех пор как прочитал перевод статьи о том как ещё в 1996, в США, люди делали на нём что-то вроде интернет-магазинов и тех, кто писал на С/С++, за конкурентов вообще не считали :D (кстати, никто не даст ссылку на неё?)). Даже свою [реализацию](https://github.com/4irik/lisphp) написал. Собственно, её я и думал использовать, и, заодно, доработать моменты которые вылезут в процессе. Но вот что мне это даст в плане возможностей поиска работы? Да, я лучше пойму как писать программы с большим количеством скобок :D, но не более, а надо бы ещё знать какие-либо инструменты, особенности языка и инструментов. В общем: может быть, когда-нибудь.
+
+Я уже некоторое кол-во лет, периодически, посматриваю на Clojure и Haskell, даже пробовал на втором писать hello-world'ы (и даже писать на PHP в функциональном стиле, но это было: во-первых сложно читаемо, во-вторых окружающие смотрели на код вот так `:-[ ]` а на меня с сожалением %) ). Есть ещё сам Lisp Scheme и Racket, но, на сколько я знаю, из функциональных языков, только Clojure и Haskell, сейчас, хоть как-то используются за пределами университетов.
 
 ## Требования к ПП
 
- Реализовать CRUD пациента.
+ Реализовать CRUD-приложение с данными пациента.
 
 **Dataset:**
 
@@ -32,17 +36,13 @@
 - подготовить продукт к развёртыванию в K8s
 - в качестве СУБД PgSql
 
-<!-- - в демо отразить:
-  - как разрабатывал через repl
-  - обосновать принятие ключевых решений -->
-
 ## Подготовка
 
 ### Инфраструктура
 
 Будем, как всегда, работать через Docker. Т.к. у нас, кроме самой Clojure есть ещё и СУБД, то используем `docker compose`. 
 
-Посмотрим есть ли что среди Docker-образов. Есть, образ даже официальный - https://hub.docker.com/_/clojure. Читаем: 
+Посмотрим есть ли что среди Docker-образов. Есть, образ, даже, официальный - https://hub.docker.com/_/clojure. Читаем: 
 
 > 1. leiningen⁠
 >    1. The oldest and probably most common tool
@@ -79,7 +79,7 @@ services:
 
 ```
 
-~~! Почему temurin?~~
+*Конфиг для postgres взял из примера на странице хаба.*
 
 Тут же накидаем `Makefile`:
 
@@ -178,6 +178,9 @@ Subprocess failed (exit code: 1)
 
 Хорошо, что-то уже работает. Добавим запуск тестов в `Makefile`:
 
+
+*Makefile:*
+
 ```Makefile
 test: ## Run app tests
 	docker compose exec app lein test
@@ -222,6 +225,8 @@ Hello, World!
 
 Добавляем команду запуска в `Makefile`:
 
+*Makefile:*
+
 ```Makefile
 run: ## Run application
 	docker compose exec app lein run -m patient.core
@@ -254,7 +259,6 @@ run: ## Run application
 		        :host "0.0.0.0"}
 	:plugins [[cider/cider-nrepl "0.50.2"]]}})
 ```
-
 
 *docker-compose.yml:*
 
@@ -335,6 +339,8 @@ patient.core> (app {:request-method :get :uri "/index.html"})
 ```
 
 Чтобы их скачать нужно запустить `lein deps`. Добавим сразу эту команду в `Makefile`:
+
+*Makefile:*
 
 ```Makefile
 deps: ## Upload dependencies
@@ -444,12 +450,13 @@ services:
 
 Напишем базовые роуты для нашего приложения. Т.к. у нас CRUD то, для работы с данными пациентов, нам нужно:
 
+1. [ ] - GET - для просмотра списка записей
 1. [ ] - POST - для создания записи
-1. [ ] - GET - для просмотра
-1. [ ] - PUT - для внесения правок
+1. [ ] - GET - для просмотра записи
+1. [ ] - PATCH - для внесения правок
 1. [ ] - DELETE - для удаления
 
-Так же надо просматривать список пациентов, это будет GET-запрос на роут `/`.
+*Я разделил доступ к разной функциональности по HTTP-запросам чтобы проще было воспринимать, что каждый из запросов делает. Позже, возможно, я поменяю это.*
 
 Напишем функции-заглушки для этих методов:
 
@@ -521,11 +528,16 @@ Compojure предоставляет маркос для написания ро
 *core.clj:*
 
 ```clj
+;;...
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes]])
+
+;; ...
+
 (defroutes app
   (GET "/"      request (patient-list request))
   (GET "/patient/:id" request (patient-view request))
   (POST "/patient" request (patient-create request))
-  (PUT "/patient/:id" request (patient-update request))
+  (PATCH "/patient/:id" request (patient-update request))
   (DELETE "/patient/:id" request (patient-delete request))
   page-404)
 ```
@@ -535,13 +547,19 @@ Compojure предоставляет маркос для написания ро
 *core.clj:*
 
 ```clj
+;; ...
+;; в конец добавлен макрос `context`
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes context]]) 
+
+;; ...
+
 (defroutes app
   (GET "/"      request (patient-list request))
   (context "/patient" []
            (POST "/" request (patient-create request))
            (context "/:id{[0-9]+}" [id]
                     (GET "/" request (patient-view request))
-                    (PUT "/" request (patient-update request))
+                    (PATCH "/" request (patient-update request))
                     (DELETE "/" request (patient-delete request))
                     )
            )
@@ -582,11 +600,9 @@ new patient created
 - [x] обработку 404
 - [ ] роут для поиска пациентов
 - [ ] пагинация списка/поиска
+- [ ] HATEOAS
 
-Оставшиеся два пункта пока оставлю, так же как и оставлю на потом работу с HATEOAS.
-
-~~HATEOAS~~
-
+Оставшиеся два пункта пока оставлю, так же как и оставлю на потом работу с HATEOAS (тут я уже подумываю о том что это будет, всё-таки, REST-приложение).
 
 #### Хранение данных. Первый подход
 
@@ -602,7 +618,7 @@ new patient created
 - [ ] получение конкретной записи
 - [ ] обновление записи
 
-Я поставил знак вопроса в скобках у пунктов которые я не уверен что нужно делать или пока не знаю в каком виде я хочу их видеть.
+*Я поставил знак вопроса в скобках у пунктов которые я не уверен что нужно делать или пока не знаю в каком виде я хочу их видеть.*
 
 Нашёл [статью](https://adambard.com/blog/diy-nosql-in-clojure/) с описанием как ~~из го~~ подручными средствами сделать себе стор. 
 
@@ -1155,7 +1171,7 @@ $ curl http://127.0.0.1:8080
 [{:fio "Сидоров С.С.", :sex true, :date-of-birth "01.01.1901", :address "sidorov s.s. address 1", :oms-number "778899"} {:fio "Петров П.П.", :sex true, :date-of-birth "10.10.1910", :address "petrov p.p. address 1", :oms-number "112233"}]
 ```
 
-Хорошо, список пациентов, в каком-то виде уже есть.
+Хорошо. Список пациентов, в каком-то виде, уже есть.
 
 ##### Получение данных конкретного пациента
 
@@ -1185,7 +1201,7 @@ Execution error (IndexOutOfBoundsException) at patient.data/get-patient (data.cl
 null
 ```
 
-Так, не нравится мне что вместо 404 я вижу исключение. В прошлой главе я специально так сделал, чтобы стор кидал исключение если запись не найдена, тогда мне показалось, что при разработке было бы удобно получать исключение если не данные не найдены. Я так решил, потому как не был уверен то смогу понять где у меня вернулся `nil` потому что я что-то не так сделал или потому что данных нет в сторе. Сейчас же мне совершенно не хочется писать обработку исключений для случая который может часто встречаться. Переделаем стор чтобы он возвращал `nil` если ничего не найдено:
+Так, не нравится мне что вместо 404 я вижу исключение. В прошлой главе я специально так сделал, чтобы стор кидал исключение если запись не найдена, тогда мне показалось, что при разработке было бы удобно получать исключение если данные не найдены. Я так решил, потому как не был уверен, что смогу понять где у меня вернулся `nil`: потому, что я что-то не так сделал или потому, что данных нет в сторе. Сейчас же мне совершенно не хочется писать обработку исключений для случая который может часто встречаться. Переделаем стор чтобы он возвращал `nil` если ничего не найдено:
 
 *data.clj:*
 
@@ -1291,7 +1307,7 @@ $ curl http://127.0.0.1:8080/patient/1
 
 (defroutes app
 ;; ...
-                    (PUT "/" request (patient-update id request))
+                    (PATCH "/" request (patient-update id request))
 ;; ...
 ```
 
@@ -1387,7 +1403,7 @@ patient_db=# SELECT * FROM test_table;
 
 ```clj
 (defn upd-patient!
-  "Обновляет данные пациента (можно передавать только обновлённые поля)"
+  "Обновляет данные пациента (можно передавать только обновляемые поля)"
   [id new-data-of-patient]
   (def patient (get-patient id))
   (if (= nil patient)
@@ -1496,7 +1512,7 @@ patient.core> (patient-update 1000 {:body (into-array Byte/TYPE ":sex false")})
 ```clj
 
 ;; добавляем `wrap-routes`
-(require '[compojure.core :refer [GET POST PUT DELETE defroutes context wrap-routes]])
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes context wrap-routes]])
 
 ;; ...
 
@@ -1527,7 +1543,7 @@ patient.core> (patient-update 1000 {:body (into-array Byte/TYPE ":sex false")})
             (wrap-routes wrap-patient-data))
             ;; ... 
                     (->
-                     (PUT "/" {:keys [patient-data]} (patient-update id patient-data))
+                     (PATCH "/" {:keys [patient-data]} (patient-update id patient-data))
                      (wrap-routes wrap-patient-data))  
                      ;; ...
   )
@@ -1544,12 +1560,12 @@ patient.core> (patient-update 1000 {:body (into-array Byte/TYPE ":sex false")})
             (POST "/" {:keys [patient-data]} (patient-create patient-data)))
             ;; ... 
                     (wrap-patient-data
-                     (PUT "/" {:keys [patient-data]} (patient-update id patient-data)))  
+                     (PATCH "/" {:keys [patient-data]} (patient-update id patient-data)))  
                      ;; ...
   )
 ```
 
-но у меня были проблемы с методом `PUT` - в функицю `patient-update` значение параметра `id` передавалось как следует а вот `patient-data` был пустым отображением. Расставив принты я выяснил что middleware `wrap-patient-data`, в случае с `PUT`, вызывается дважды. Сначала я не понимал почему так, но потом вспомнил:  middleware применяется до того как проверится подходит ли роут к запросу:
+но у меня были проблемы с методом `PATCH` - в функицю `patient-update` значение параметра `id` передавалось как следует а вот `patient-data` был пустым отображением. Расставив принты я выяснил что middleware `wrap-patient-data`, в случае с `PATCH`, вызывается дважды. Сначала я не понимал почему так, но потом вспомнил:  middleware применяется до того как проверится подходит ли роут к запросу:
 
 > If you want middleware to be applied only when a route matches ...
 
