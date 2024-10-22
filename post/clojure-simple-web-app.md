@@ -1644,3 +1644,9 @@ No such a page.
 <!-- #### Представление
 
 JSON/XML/HTML в зависимости от заголовка запроса -->
+
+---
+
+- [Issue](https://github.com/4irik/log/issues/3) для комментариев
+- [Анонс](https://t.me/stdi0_h/36) в телеграм-канале
+- [Анонс](https://www.linkedin.com/posts/kirill-cherednichenko_clojure-functionalprogramming-webdev-activity-7254405331810725889-vWrU) в LinkedIn
