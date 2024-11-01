@@ -35,7 +35,7 @@
 - использовать vim/emacs
 - пишем тесты
 - REPL-driven разработка
-- CI
+- CI (сборка по коммиту)
 - подготовить продукт к развёртыванию в K8s
 - в качестве СУБД PgSql
 
@@ -1644,9 +1644,469 @@ No such a page.
 
 Позже вернёмся к этому чек-листку, как, впрочем, и другим, а сейчас займёмся следующей частью нашего web-приложения!
 
-<!-- #### Представление
+### Инфраструктура
 
-JSON/XML/HTML в зависимости от заголовка запроса -->
+Пока мы далеко не ушли сделаем шаг в сторону и займёмся инфраструктурой, а именно реализуем следующие два пункта из дополнительного задания:
+
+- CI (сборка по коммиту)
+- подготовить продукт к развёртыванию в K8s
+
+#### CI
+
+Итак, получается, нужно, при коммите:
+
+1. запустить сборку проекта
+1. где-то сохранить результат сборки
+
+Немного обдумаем эти два пункта.
+
+**Запуск сборки**
+
+Какие у нас могут быть варианты? Ну, раз я разрабатываю всё локально, то, кажется, что вариант только один - git-хук. Но, в таком случае, на каждый коммит будет проводиться сборка, что не всегда нужно. Решений несколько:
+
+1. разрабатывать фичи в ветках а git-хук сделать только для master-ветки
+1. добавить флаг в коммит, который отменяте сборку (но тогда, в сообщении коммита будет "служебный мусор" не несущий никакого смысла для человека)
+1. использовать, при коммите, флаг `--no-verify`, но тогда его нужно не забывать ставить каждый раз когда запуск сборки не нужен.
+
+Пока, выходит, что нужны или дополнительные телодвижения или постоянно держать в голове необходимость что-то дополнительно прописать, чтобы отменить сборку. Такое мне не нравится, хочется чтобы всё работало и мне не нужно было ни о чём думать.
+
+Временное решение - **cделаю сборку по требованию**, т.е. через Makefile, а потом, может быть, ещё вернусь к этой теме.
+
+Посмотрим что [предлагает Leiningen](https://leiningen.org/tutorial.html#what-to-do-with-it) в плане сборки проекта:
+
+- uberjar - 1 файл который требует (кажется) только JRE, хорошо подходит для передачи конечному пользователю
+- tar-файл и [lein-tar плагин](https://github.com/technomancy/lein-tar) для развёртывания
+- uberjar со встроенным Jetti c `ring-jetty-adapter` (который у меня уже есть в зависимостях)
+- war-файл и [lein-ring](https://github.com/weavejester/lein-ring)
+
+Ещё я погуглил как, вообще, люди разворачивают свои web-app на Java. Всё что я нашёл - использование jar-файлов. Что ж, [миллионы не могут ошибаться](https://neolurk.org/wiki/Миллионы_не_могут_ошибаться) %). Последуем их примеру, **наш выбор - uberjar**!
+
+**Хранение билдов**
+
+Допустим сборка у нас прошла, что деальше? Дальше надо куда-то сохранить её результат, притом так, чтобы было понятно к какому коммиту он относится (иначе потом замучаешься искать где и когда что-то поломалось, особенно будет весело если сделать новый билд нужно срочно):
+
+- сохранить результат сборки в отдельное место
+- билд должен знать из какого коммита он собран
+
+Ещё у нас есть в задачах подготовка к K8s, а эта штука работает с докером или rkt (я не очень в ней силён, видел один раз, издалека, как-то). Это значит что мы можем уже сейчас пользовать докер для того чтобы подготовиться к следующему этапу и этим решим сразу обе проблемы: хранить всё будем в докер-образах (а там хоть на публичный хаб заливать, хоть на личный, хоть хранить их на локальной машине) а метки у образов будем образовывать c хешем git-коммита из которого собрано приложение.
+
+Решено! **Делаем сборку docker-образа** с готовым к запуску в прод приложением.
+
+##### Docker-образ сборки и запуска
+
+Сначала попробуем сами собрать приложение:
+
+*shell:*
+
+```shell
+$ lein uberjar
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Clojure 1.12.0
+user=> ^C
+```
+
+Собраться то оно собралось но не то что я ожидал, посмотрим что я там писал в Makefile для запуска приложения:
+
+*Makefile:*
+
+```Makefile
+run: ## Run application
+	docker compose exec app lein run -m patient.core
+```
+
+`lein run -m patient.core` - т.е. я явно указываю какой неймспес использовать... хм, похоже пришло время заглянуть в [документацию](https://leiningen.org/tutorial.html#uberjar):
+
+> ... you’ll need to specify a namespace as your :main in project.clj and ensure it’s also AOT (Ahead Of Time) compiled by adding it to :aot ..
+> ...
+> (defproject 
+> ... 
+>  :main my-stuff.core
+>  :aot [my-stuff.core])
+
+Добавим это в наш файл проекта:
+
+*project.clj:*
+
+```clj
+(defproject patient "0.1.0-SNAPSHOT"
+  ;; ...
+  :main patient.core
+  :aot [patient.core])
+```
+
+Попробуем собрать:
+
+*shell:*
+
+```shell
+$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Warning: The Main-Class specified does not exist within the jar. It may not be executable as expected. A gen-class directive may be missing in the namespace which contains the main method, or the namespace has not been AOT-compiled.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class patient.core
+Caused by: java.lang.ClassNotFoundException: patient.core
+```
+
+Читаем документацию далее:
+
+> .. This namespace should have a (:gen-class) declaration in the ns form at the top ..
+>
+> (ns my-stuff.core
+>   (:gen-class))
+
+
+Хорошо, пометим неймспейс:
+
+*core.clj:*
+
+```clj
+(ns patient.core
+  (:gen-class))
+;; ...
+```
+
+*shell:*
+
+```shell
+# запустим сборку
+$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+# теперь попробуем запустить
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Отлично, со сборкой разобрались. Теперь займёмся докер-файлом для сборки и последующего запуска.
+
+*./build/Dockerfile:*
+
+```Dockerfile
+FROM clojure:temurin-23-lein-alpine AS builder
+
+RUN mkdir /app
+WORKDIR /app
+
+COPY . .
+
+RUN cp -r .m2 /root
+
+RUN lein deps
+RUN lein uberjar
+
+FROM ubuntu/jre:8-22.04_edge_49
+
+WORKDIR /app
+COPY --from=builder /app/target/patient-0.1.0-SNAPSHOT-standalone.jar ./app.jar
+
+CMD ["java", "-jar", "app.jar"]
+```
+
+> [!NOTE]
+> Т.к. вся разработка локальная, то я добавил строчку 
+> `RUN cp -r .m2 /root` чтобы не выкачивать каждый раз все зависимости.
+
+> [!WARNING]
+> Есть только одна пробелма с этим подходом: даже если мы уберём из зависимостей какой-либо пакет он всё равно останется в `/root/.m2`, что может привести к невоспроизводимости сборки. Сценарий такой:
+> 1. добавляем зависимость в `project.clj` и ставим её через `lein deps`
+> 1. переключаемся на другую ветку, в которой нет этой зависимости, и используем установленную библиотеку
+> 1. собираем билд
+> 1. очищаем папку `/root/.m2`
+> 1. запускаем `lein deps`
+> 1. запускаем сборку билда которая падает из-за того что нет нужной библиотеки, которую мы ставили в первом шаге
+> 
+> Потом, если не забуду, вернусь к этой проблеме. Сейчас у меня нет готового решения.
+
+Попробуем это всё собрать и запустить:
+
+*shell:*
+
+```shell
+$ docker build -t test-clj-app -f ./build/Dockerfile .
+# ...
+$ docker run --rm -it test-clj-app
+Error: Could not find or load main class java
+```
+
+То ли собралось не так, то ли я не знаю что %). Попробуем запустить этот jar-файл, созданный в нашей среде разработки (т.e. в контейнере `clojure:temurin-23-lein-alpine`), внутри контейнера с JRE:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 java -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class java
+```
+
+Ага, образ с JRE, почему-то не фурычит. Попробуем зайти в него и уже из него запустить jar-файл а потом посмотреть логи:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 bash
+Error: Could not find or load main class bash
+```
+
+Опачки! Идём смотреть [документацию](https://hub.docker.com/r/ubuntu/jre) :D. Видим в ней такой пример:
+
+```Dockerfile
+FROM ubuntu:22.04 AS builder
+RUN apt-get update && apt-get install -y openjdk-8-jdk
+WORKDIR /app
+ADD HelloWorld.java .
+
+RUN javac -source 8 -target 8 HelloWorld.java -d .
+
+FROM ubuntu/jre:8-22.04_edge
+
+WORKDIR /
+COPY --from=builder /app/HelloWorld.class .
+
+CMD [ "HelloWorld" ]
+```
+
+Т.е. я должен передать уже скомпилированный объектный файл (на сколько я это понял). У нас его нет, но есть jar, смотрим можно ли из java запустить jar, судя по [этому ответу](https://stackoverflow.com/a/4936279) на StackOverflow можно. Т.к. в контейнере уже запущена java-машина попробуем передать ей параметры:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread "main" java.lang.UnsupportedClassVersionError: jakarta/servlet/AsyncContext has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
+        at java.lang.ClassLoader.defineClass1(Native Method)
+        # ...
+```
+
+Уже лучше. Обновим нашу JRE (я уже непомню почему выбрал эту):
+
+*shell:*
+
+```shell
+$ docker pull ubuntu/jre:17-22.04_edge_49
+17-22.04_edge_49: Pulling from ubuntu/jre
+# ...
+$ docker run --rm -it -v ./target:/app ubuntu/jre:17-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread "main" java.lang.NoClassDefFoundError: java/util/SequencedCollection
+        at java.base/java.lang.Class.forName0(Native Method)
+        # ...
+```
+
+Чего-то ему не хватает. Задал вопрос в русскоязычном [telegram-чатике](https://t.me/clojure_ru) кложуры, на что мне ответили, что `SequencedCollection` появился только в Java 21. Ну блин, в официальном [хабе](https://hub.docker.com/r/ubuntu/jre) убунты нет JRE 21, только 8 и 17. Посмотрим что есть ещё:
+
+*shell:*
+
+```shell
+# скачаем новый образ JRE
+$ docker pull bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+# ...
+# запустим в нём наше приложение
+$ docker run --rm -it -v ./target:/app bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc java -jar app/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Запустилось, так и оставим. Поменяем в нашем файле контейнер: 
+
+*./build/Dockerfile:*
+
+```Dockerfile
+# ...
+
+RUN lein uberjar
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+WORKDIR /app
+
+# ...
+```
+
+*shell:*
+
+```shell
+# соберём контейнер
+$ docker build -t test-clj-app -f ./build/Dockerfile .
+[+] Building 11.7s (16/16) FINISHED                                                            docker:default
+# запустим его
+$ docker run --rm -it test-clj-app
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Отлично, всё работает.
+
+##### Make-команда сборки проекта
+
+Итак, нам нужно как-то определять коммит из которого мы собрали docker-образ. Эту проблему можно решить несколькими способами:
+
+1. в названии docker-образа указывать hash коммита
+1. добавить в метаданные docker-образа hash коммита
+1. добавить в docker-образ переменную окружения
+
+Рассмотрим их по порядку.
+
+Первый способ позволяет быстро, без лишний телодвижений узнать коммит из которого произведена сборка, но можно изменить тег у образа и тогда уже никак не узнать откуда он был собран. 
+Второй вариант лишён недостатка первого, точнее провернуть трюк с меткой сложнее чем с тегом, но [можно](https://github.com/dokku/docker-image-labeler). 
+А вот третий вариант, кажется, точно лишён этого недостатка, во всяком случае мне не удалось быстро нагуглить как поменять переменные окружения образа.
+
+Решил использовать комбинированный подход: воспрользуюсь вариантом 1 и 3. Первый чтобы человек не страдал, третий, больше для того чтобы потом в логах можно было это значение указывать и, потом, в какой-нибудь гарафане видеть что у нас за сборка логи отправляет.
+
+Итак, сначала удостоверимся что у нас нет модифицированных и неотслеживаемых файлов:
+
+> [!NOTE]
+> Если с модифицированными файлами понятно, то с неотслеживаемыми следует пояснить: мы можем написать код в новом файле и не поставить его под наблюдение git, в таком случае, если мы запустим сборку без проверки наличия таких файлов мы, снова, получим невоспроизводимую сборку, т.к. в git может уйти коммит без этого нового файла. Это добавляет проблем при сборке, т.к. мне теперь придётся все файлы что не нужны удалять перед ней или добавлять в `.gitignore`.
+
+*./build/build.sh:*
+
+```shell
+#!/bin/bash
+
+# Будем раскрашивать сообщения чтобы можно было не читая понять что происходит
+COLOR_FAIL='\033[0;31m' # Red
+COLOR_SUCCESS='\033[0;32m' # Green
+COLOR_NC='\033[0m' # No Color
+
+# смотрим чтобы не было модифицированных или не отслеживаемых файлов
+# для этого получим списпок файлов и посчитаем их кол-во
+git_files_count=$(git status -s | wc -l)
+if [ $git_files_count -ne 0 ]; then
+  echo -e "${COLOR_FAIL}FAIL:${COLOR_NC}"
+  echo "Проект имеет неотслеживаемые или модифицированные файлы в кол-ве ($git_files_count штук)"
+  exit 1
+fi
+
+# получим короткий хэш коммита
+hash=$(git rev-parse --short HEAD)
+
+# запустим сборку
+build_name="patient:$hash"
+docker build -t $build_name -f ./build/Dockerfile .
+
+if [ $? -ne 0 ]; then
+  echo -e "${COLOR_FAIL}FAIL:${COLOR_NC}"
+  echo "Сборка завершилась с ошибками, см. сообзения выше."
+  exit 1
+fi
+
+echo -e "${COLOR_SUCCESS}SUCCESS:${COLOR_NC} $build_name"
+exit 0
+```
+
+*Makefile:*
+
+```Makefile
+
+# ...
+
+docker-build: ## Build containers
+	docker compose build
+
+# ...
+
+build: ## Build prod app docker-image
+	bash ./build/build.sh
+```
+
+Ранее команда `build` отвечала за сборку docker-образа для разработки, я переименовал её в `docker-build` а это название теперь используется для сборки прода.
+
+Проверим:
+
+*shell:*
+
+```shell
+# посмотрим есть ли у меня что-то модифицированное или не отслеживаемое
+$ git status -s
+ M Makefile
+# запустим сборку
+$ make build
+bash ./build/build.sh
+FAIL:
+Проект имеет неотслеживаемые или модифицированные файлы в кол-ве (1 штук)
+make: *** [Makefile:31: build] Error 1
+# зафиксируем изменения в Makefile
+$ git add Makefile
+$ git commit -m "feat: add command for buil prod ready docker image"
+# запустим сборку ещё раз
+$ make build
+bash ./build/build.sh
+[+] Building 11.6s (16/16) FINISHED                                                            docker:default
+# ...
+SUCCESS: patient:1de6043
+# проверим что такой образ действительно существует
+$ docker image ls | grep patient
+patient                               1de6043                          408329cd984b   About a minute ago   308MB
+```
+
+Немного смущает размер образа в 308 МБ, но это уже как-нибудь потом.
+
+Теперь надо при сборке добавить в переменную окружения образа хэш коммита из которого он слеплен. Нужно просто добавить передачу аргумента при сборке:
+
+*./build/build.sh:*
+
+```shell
+# ...
+
+docker build --build-arg version=$hash -t $build_name -f ./build/Dockerfile .
+
+# ...
+```
+
+*./build/Dockerfile:*
+
+```Dockerfile
+# ...
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+ARG version
+ENV version=${version:-v0.0}
+
+# ...
+```
+
+Проверим:
+
+*shell:*
+
+```shell
+# соберём образ заново
+$ make build
+# ...
+SUCCESS: patient:1de6043
+# посмотрим что у него есть внутри
+$ docker image inspect patient:1de6043 | grep 1de6043
+            "patient:1de6043"
+                "version=1de6043"
+```
+
+##### Итог:
+
+Что мы сделали:
+
+- [x] автоматизированная сборка билда (через Makefile)
+- [x] есть где хранить билды
+- [x] билд знает из какого коммита он собран
+- [x] простейшая проверка на неповторяемые сборки (смотрим чтобы `git status` был пуст)
+
+Какие проблемы остались/добавились:
+
+- [ ] сборка билда не автоматическая
+- [ ] неповторяемые сборки из-за `/root/.m2` в котором не удаляются зависимости которых нет в `project.clj`
+- [ ] большой объём образа - 308 МБ
+- [ ] "лишних" файлов не должно быть при сборке проекта
 
 ---
 
