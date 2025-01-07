@@ -1,5 +1,7 @@
 # Валидация форм yii2 как в Laravel
 
+![alt text](../assets/laravel-form-in-yii2/laryii2-form.png)
+
 Сейчас работаю над проектом на `yii2` весь backend которого - REST-API.
 Соответственно, там много форм и много шаблонного кода в действиях (`Action`):
 
