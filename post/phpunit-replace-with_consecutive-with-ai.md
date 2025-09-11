@@ -1,6 +1,6 @@
-### Замена устаревших withConsecutive и willReturnOnConsecutiveCalls в PHPUnit 10 с помощью ChatGPT
+### Замена удалённого в PHPUnit 10 метода `withConsecutive` с помощью ChatGPT
 
-С переходом на PHPUnit 10 многие столкнулись с тем, что методы `withConsecutive` и `willReturnOnConsecutiveCalls` были объявлены устаревшими. Мне понадобилась замена, которая была бы так же лаконична в использовании, как и старые методы.
+С переходом на PHPUnit 10 я столкнулся с тем, что метод `withConsecutive` удалён. Мне понадобилась замена, которая была бы так же лаконична в использовании, как и старый метод.
 
 Сначала я поискал готовое решение и нашёл отличную статью Томаша Вотрубы — [How to Upgrade Deprecated PHPUnit withConsecutive](https://tomasvotruba.com/blog/how-to-upgrade-deprecated-phpunit-with-consecutive). Суть в том, чтобы заменить поведение на `willReturnCallback`. Решение рабочее, но мне показалось слишком многословным для частых кейсов.
 
