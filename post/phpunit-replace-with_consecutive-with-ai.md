@@ -87,7 +87,7 @@ $testableClass->expects($invokedCount = $this->any())
 
 ### Примеры тестов
 
-Полные примеры лежат в каталоге `../assets/phpunit-replace-with_consecutive-with-ai/code_example`:
+Полные примеры лежат в каталоге [`assets/phpunit-replace-with_consecutive-with-ai/code_example`](../assets/phpunit-replace-with_consecutive-with-ai/code_example) этого репозитория:
 
 - `TestPhpunit9.php` — реализация на PHPUnit 9 со старыми `withConsecutive` и `willReturnOnConsecutiveCalls`.
 - `TestPhpunit10.php` — реализация на PHPUnit 10 c трейтом-обёрткой, заменяющим эти методы и немного расширяющим их возможности.
