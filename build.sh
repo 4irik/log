@@ -7,6 +7,7 @@ set -eu
 SITE_URL="${SITE_URL:-https://4irik.github.io/log}"
 TITLE='Б_лог'
 DESC='Технический блог: посты — markdown-файлы, комментарии — GitHub issues.'
+CONTACTS='[тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)'
 
 OUT=docs
 
@@ -19,8 +20,8 @@ rm -f "$OUT"/post/*.html "$OUT"/index.html "$OUT"/llms.txt \
 dates="$OUT/.dates"
 index="$OUT/.index.md"
 entries="$OUT/.entries"
-printf '# %s\n\n%s\n\n## Посты\n\n' "$TITLE" "$DESC" > "$index"
-printf '# %s\n\n> %s\n\n## Посты\n\n' "$TITLE" "$DESC" > "$OUT/llms.txt"
+printf '# %s\n\nКонтакты: %s\n\n## Посты\n\n' "$TITLE" "$CONTACTS" > "$index"
+printf '# %s\n\n> Контакты: %s\n\n## Посты\n\n' "$TITLE" "$CONTACTS" > "$OUT/llms.txt"
 printf '# %s\n\n%s\n' "$TITLE" "$DESC" > "$OUT/llms-full.txt"
 : > "$entries"
 

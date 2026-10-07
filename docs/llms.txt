@@ -1,6 +1,6 @@
 # Б_лог
 
-> Технический блог: посты — markdown-файлы, комментарии — GitHub issues.
+> Контакты: [тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)
 
 ## Посты
 
