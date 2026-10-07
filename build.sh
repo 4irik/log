@@ -33,17 +33,20 @@ for src in "$OUT"/post/*.md; do
 	date="$(awk -v s="$src" '$2==s {print $1; exit}' "$dates" 2>/dev/null)"
 	[ -n "$date" ] || date="$(date +%F)"
 
-	awk -v d="$date" '
-		!done && /^#+ / {
-			print
-			print ""
-			print "<p class=\"date\">" d "</p>"
-			print ""
-			done = 1
-			next
-		}
-		{ print }
-	' "$src" | pandoc --standalone --from gfm --syntax-highlighting=none \
+	{
+		awk -v d="$date" '
+			!done && /^#+ / {
+				print
+				print ""
+				print "<p class=\"date\">" d "</p>"
+				print ""
+				done = 1
+				next
+			}
+			{ print }
+		' "$src"
+		printf '\n\n<section id="comments">\n<h2>Комментарии</h2>\n<p><a href="https://github.com/4irik/log/issues">Комментарии на GitHub</a></p>\n</section>\n<script src="../comments.js"></script>\n'
+	} | pandoc --standalone --from gfm --syntax-highlighting=none \
 		--metadata lang=ru --metadata document-css=false \
 		--metadata pagetitle="$title" --css ../style.css \
 		--output "$OUT/post/$name.html"
