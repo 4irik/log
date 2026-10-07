@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Валидация форм yii2 как в Laravel</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="валидация-форм-yii2-как-в-laravel">Валидация форм yii2 как в
+Laravel</h1>
+<p class="date">2025-01-07</p>
+
+<p><img src="../assets/laravel-form-in-yii2/laryii2-form.png"
+alt="alt text" /></p>
+<p>Сейчас работаю над проектом на <code>yii2</code> весь backend
+которого - REST-API. Соответственно, там много форм и много шаблонного
+кода в действиях (<code>Action</code>):</p>
+<pre class="php"><code>public function run(Request $request): FormName|ResponseName
+{
+    $form = new FormName();
+    $form-&gt;load($request-&gt;getBodyParams());
+    if (!$form-&gt;validate()) {
+        return $form;
+    }
+
+    // ...
+
+    return new ResponseName($data);
+}</code></pre>
+<p>Надоело мне его писать каждый раз, а, кроме того, мне не
+нравится:</p>
+<ol type="1">
+<li>в сигнатуре ответа у нас два типа: форма, на случай если что-то
+передали не то, и, собственно, сам ответ;</li>
+<li>код работы с формой сервисный, т.е. не несёт никакой смысловой
+нагрузки, а лишь только занимает место и отнимает время при
+чтении/написании</li>
+</ol>
+<p>Хочется как в Laravel: если данные не прошли валидацию, то и метод
+контроллера не запустится. Т.е. чтобы было как-то так:</p>
+<pre class="php"><code>public function run(FormName $form): ResponseName
+{
+    // ...
+
+    return new ResponseName($data);
+}</code></pre>
+<p>Тут сразу в голову приходят <code>middleware</code> и метод
+<code>beforeAction</code>, но первыx в <code>yii2</code> не завезли а
+второй не подходит по причине отсутсвия возможности вернуть ответ из
+него пользователю кроме как кинуть исключение.</p>
+<p>В голову пришли два варианта решения:</p>
+<ol type="1">
+<li>Сделать наследника от <code>Action</code>, переопределить у него
+метод <code>runWithParams</code> и все свои классы уже наследовать от
+него;</li>
+<li>Подменить в автозагрузке класс <code>Action</code> на свой.</li>
+</ol>
+<p>Первый вариант не особо подходит потому как придётся перелапатить
+весь проект, второй меня смущает тем что при обновлении фреймворка нужно
+будет внимательно посмотреть не поменяли ли там чего в классе
+<code>Action</code>, но, пока что, ничего лучше я не придумал (да и в
+первом варианте тоже просто так обновляться будет немного тревожно).</p>
+<p>Второй путь выглядит так:</p>
+<ol type="1">
+<li>Копируем <code>yii\base\Action</code> в свою директорию (оставляем у
+него исходный namespace) и переписываем метод
+<code>runWithParams</code>:</li>
+</ol>
+<pre class="php"><code>&lt;?php
+
+namespace yii\base;
+
+use Yii;
+
+class Action extends Component
+{
+    // ... 
+
+    public function runWithParams($params)
+    {
+        if (!method_exists($this, &#39;run&#39;)) {
+            throw new InvalidConfigException(get_class($this) . &#39; must define a &quot;run()&quot; method.&#39;);
+        }
+        $args = $this-&gt;controller-&gt;bindActionParams($this, $params);
+        Yii::debug(&#39;Running action: &#39; . get_class($this) . &#39;::run(), invoked by &#39; . get_class($this-&gt;controller), __METHOD__);
+        if (Yii::$app-&gt;requestedParams === null) {
+            Yii::$app-&gt;requestedParams = $args;
+        }
+        if ($this-&gt;beforeRun()) {
+            $result = null;
+            $request = Yii::$app-&gt;getRequest();
+            foreach ($args as $value) {
+                if ($value instanceof Model) {
+                    $value-&gt;load(match ($request-&gt;getMethod()) {
+                        &#39;POST&#39; =&gt; $request-&gt;getBodyParams(),
+                        default =&gt; $request-&gt;getQueryParams()
+                    });
+
+                    if (!$value-&gt;validate()) {
+                        $result = $value;
+                        break;
+                    }
+                }
+            }
+
+            $result = is_null($result)
+                ? call_user_func_array([$this, &#39;run&#39;], $args)
+                : $result;
+
+            $this-&gt;afterRun();
+
+            return $result;
+        }
+
+        return null;
+    }
+
+    // ... 
+}</code></pre>
+<ol start="2" type="1">
+<li>Подменяем в автозагрузке исходный класс на свой:</li>
+</ol>
+<pre class="php"><code>// bootstrap.php
+
+// ...
+
+Yii::$classMap[&#39;yii\base\Action&#39;] = __DIR__ . &#39;/../component/Action.php&#39;;</code></pre>
+<ol start="3" type="1">
+<li>Указываем в конфиге приложения, в разделе <code>components</code>,
+класс нашей формы (чтобы контейнер приложения смог создать объект формы,
+иначе он скажет что не знает таких):</li>
+</ol>
+<pre class="php"><code>&lt;?php
+
+return [
+    &#39;components&#39; =&gt; [
+    // ...
+        FormName::class =&gt; FormName::class,
+    ],
+]</code></pre>
+<p>На этом всё: если пришёл запрос, и форма не прошла валидацию,
+пользователь увидит ответ с ошибками, действие в контроллере не
+запустится, а мы не будем писать шаблонный код создания наполнения и
+валидации формы каждый раз.</p>
+<p>Happy end!</p>
+<hr />
+<p><a href="https://github.com/4irik/log/issues/4">Issue</a> для
+комментариев</p>
+<p>Мой ТГ - <a href="https://t.me/stdi0_h">https://t.me/stdi0_h</a></p>
+</body>
+</html>

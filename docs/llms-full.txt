@@ -1,0 +1,3463 @@
+# Б_лог
+
+Технический блог: посты — markdown-файлы, комментарии — GitHub issues.
+
+
+---
+
+<https://4irik.github.io/log/post/linkedin-post-formatter.md> (2025-11-19)
+
+# Написание заметок для LinkedIn в Markdown. Вайбкодим свой преобразователь форматов в Cursor. 
+
+_Это просто очерк о том как, бывает, быстро можно сделать что-то удобоваримое не особо разбираясь в том как оно работает._
+
+![Редактор постов для LinkedIn](../assets/linkedin-post-formatter/post-formatter-first-attempt.png)
+
+Т.к. в  LinkedIn нет форматирования, а хочется, как минимум чтобы были списки:
+
+ 1. нумерованный;
+ 1. маркированный;
+ 1. учёт вложенности;
+
+а так же различные начертания текста:
+
+ - **жирный**;
+ - *курсив*;
+ - _подчёркнутый_;
+ - ~~зачёркнутый~~;
+ - комбинации вышеперечисленного;
+
+И я хочу всё писать в markdown. 
+
+Т.к. форматирования (кроме пробелов) в заметках не предусмотрено, то начертания надо делать через вставку utf-символов. Со списками, конечно, всё куда как проще, нужен только литерал для обозначения элемента списка и пробелы для учёта вложенности.
+
+Собственно примерно такой текст я и закинул в Cursor, финальный (на текущий момент) результат видно на картинке.
+
+Проблем было две: 
+ - для маркированного списка, элементы первого уровня вместо маркера имели надпись `undefined`;
+ - в нумерованном же списоке, для элементов, опять же, первого уровня значение маркера (циферка то есть) не возрастала, притом для вложенных элементов всё работало.
+
+Первую ошибку он поправил с первого раза. Для работы над второй он создал файл `test.js` в котором была копипаста с основного скрипта плюс тестовая функция которая подавала на вход функции форматирования:
+
+```txt
+1. Первый
+1. Второй
+1. Третий
+```
+и сравнивала её вывод с ожиданием:
+
+```txt
+1. Первый
+2. Второй
+3. Третий
+```
+
+Далее он попросил у меня разрешения запустить nodejs и по кругу запускал свой тестовый код и правил его, запускал и правил. Я принципиально не вмешивался. В какой-то момент мне начало казаться что он ходит по кругу из которого уже никогда не выбертся. И вот, когда он сжёг уже 30% от бюджета токенов, его вдруг осенило и он справился!
+
+Из приятных моментов:
+- он сам перенёс правки в основной скрипт;
+- я сказал ему что nodejs у меня нет, но он может использовать docker, и он тут же сформировал команду для запуска своих тестов в докер-образе с нодой с пробросом всех необходимых ему файлов;
+- он сразу сделал приятный web-интерфейс и добавил кнопку "Скопировать" (с одной стороны я его об этом не просил, с другой стороны это то что мне было нужно).
+
+А далее, так как начертания символов - это уже подстановка похожих по начертания символов из UTF, и:
+- искаться обычным поиском эти строки не будут
+- в сети пишут что LI посты с такими подставновками понижает в выдаче
+
+я решил что форматирования списков мне вполне достаточно на текущее время. Позже, может быть, докручу ещё проверку картинок (у LI есть требования по размеру и формату) и сделаю превью поста.
+
+PS. Меня только, после всего этого, мучает один вопрос - "А кто автор кода то теперь?". 🤔
+
+---
+
+<https://4irik.github.io/log/post/phpunit-replace-with_consecutive-with-ai.md> (2025-09-11)
+
+### Замена удалённого в PHPUnit 10 метода `withConsecutive` с помощью ChatGPT
+
+С переходом на PHPUnit 10 я столкнулся с тем, что метод `withConsecutive` удалён. Мне понадобилась замена, которая была бы так же лаконична в использовании, как и старый метод.
+
+Сначала я поискал готовое решение и нашёл отличную статью Томаша Вотрубы — [How to Upgrade Deprecated PHPUnit withConsecutive](https://tomasvotruba.com/blog/how-to-upgrade-deprecated-phpunit-with-consecutive). Суть в том, чтобы заменить поведение на `willReturnCallback`. Решение рабочее, но мне показалось слишком многословным для частых кейсов.
+
+Тут я вспомнил [заметку](https://www.linkedin.com/posts/mokevnin_free-online-programming-courses-html-css-activity-7318703967935352833-FiWp) Кирилла Мокевнина про «малую автоматизацию» с LLM — когда мы поручаем модели генерировать небольшие куски кода нацелленные на решение одной единственной небольшой проблемы. Я обратился к ChatGPT с просьбой помочь оформить идею из статьи в удобный для повседневной работы трейт-обёртку. За пару итераций мы собрали аккуратный результат — см. гист: [gist.github.com/4irik/674a71d4d87e5e45e73365b4a127b1e6](https://gist.github.com/4irik/674a71d4d87e5e45e73365b4a127b1e6).
+
+### Идея обёртки
+
+Я вынес логику последовательных ожиданий и возвратов в трейт с двумя методами:
+
+- `expectCallSequence(MockObject $mock, string $methodName, array $calls): void` — строгая последовательность вызовов: каждый вызов проверяется по аргументам и возвращает подготовленное значение.
+- `expectPartialCallSequence(MockObject $mock, string $methodName, array $callsByIndex, ?callable $defaultCallback = null): void` — выборочная проверка вызовов по индексам, остальные обслуживает дефолтный коллбэк (возвращает `null` или то, что вы укажете).
+
+Минимальный пример использования для полной последовательности:
+
+```php
+$testableClass = $this->createMock(TestableClass::class);
+$this->expectCallSequence($testableClass, 'doSomethingWithDefault', [
+    [[1, '3'], '1 3'],
+    [[3], '3 2'],
+]);
+```
+
+И пример для частичной последовательности с заполнителем по умолчанию:
+
+```php
+$testableClass = $this->createMock(TestableClass::class);
+$this->expectPartialCallSequence($testableClass, 'doSomethingWithDefault', [
+    0 => [[1, '3'], '1 3'],
+    2 => [[3], '3 2'],
+]);
+```
+
+Для сравнения — как то же самое выглядит без трейта.
+
+— PHPUnit 9 с `withConsecutive` и `willReturnOnConsecutiveCalls`:
+
+```php
+$testableClass = $this->createMock(TestableClass::class);
+$testableClass->expects($this->exactly(2))
+    ->method('doSomethingWithDefault')
+    ->withConsecutive(
+        [1, '3'],
+        [3],
+    )
+    ->willReturnOnConsecutiveCalls('1 3', '3 2');
+```
+
+— PHPUnit 10 через «голый» `willReturnCallback` (полная последовательность):
+
+```php
+$testableClass = $this->createMock(TestableClass::class);
+$testableClass->expects($invokedCount = $this->exactly(2))
+    ->method('doSomethingWithDefault')
+    ->willReturnCallback(function (...$parameters) use ($invokedCount) {
+        if ($invokedCount->numberOfInvocations() === 1) {
+            $this->assertSame([1, '3'], $parameters);
+            return '1 3';
+        }
+        if ($invokedCount->numberOfInvocations() === 2) {
+            $this->assertSame([3, '2'], $parameters);
+            return '3 2';
+        }
+    });
+```
+
+— PHPUnit 10: частичная последовательность без трейта (с дефолтным значением):
+
+```php
+$testableClass = $this->createMock(TestableClass::class);
+$testableClass->expects($invokedCount = $this->any())
+    ->method('doSomethingWithDefault')
+    ->willReturnCallback(function (...$parameters) use ($invokedCount) {
+        if ($invokedCount->numberOfInvocations() === 1) {
+            $this->assertSame([1, '3'], $parameters);
+            return '1 3';
+        }
+        if ($invokedCount->numberOfInvocations() === 3) {
+            $this->assertSame([3, '2'], $parameters);
+            return '3 2';
+        }
+        return '';
+    });
+```
+
+### Примеры тестов
+
+Полные примеры лежат в каталоге [`assets/phpunit-replace-with_consecutive-with-ai/code_example`](../assets/phpunit-replace-with_consecutive-with-ai/code_example) этого репозитория:
+
+- `TestPhpunit9.php` — реализация на PHPUnit 9 со старыми `withConsecutive` и `willReturnOnConsecutiveCalls`.
+- `TestPhpunit10.php` — реализация на PHPUnit 10 c трейтом-обёрткой, заменяющим эти методы и немного расширяющим их возможности.
+- `TestPhpunit10Native.php` — реализация на PHPUnit 10 с «голым» `willReturnCallback` без обёртки.
+
+Если посмотреть на метод `testDoSomethingConsecutive` во всех трёх файлах, видно, что в варианте с чистым `willReturnCallback` код самый многословный. Вариант с PHPUnit 9 и вариант с трейтом имеют сопоставимую лаконичность.
+
+Также обратите внимание на `testDoSomethingInvokingGreaterThanOnceFail`: при запуске сообщение об ошибке одинаково во всех трёх случаях, что подтверждает эквивалентность поведения. И, наконец, «бонус» — `testDoSomethingConsecutivePartial`: в варианте с трейтом он заметно короче, чем на PHPUnit 9 и на «голом» PHPUnit 10.
+
+### Итог
+
+Эра LLM позволяет делать многие вещи заметно быстрее, чем это делал бы человек вручную. В данном случае модель помогла за минуты превратить многословный `willReturnCallback` в компактную и переиспользуемую обёртку, сохранив гибкость нового API и удобство старых подходов. Такой «малой автоматизацией» имеет смысл пользоваться всякий раз, когда повторяется однотипная рутина — ускорение и качество быстро окупают вложение.
+
+---
+
+<https://4irik.github.io/log/post/yii2-model-nested-errors.md> (2025-01-11)
+
+# Делаем вложенные ошибки валидации в yii2
+
+Понадобилось мне провалидировать массив и, до кучи, указать, в каком элементе массива возникла ошибка.
+
+Код, выглядит, примерно так:
+
+```php
+class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            ['data', 'required',],
+            [
+                'data',
+                RangeValidator::class,
+                'range' => [1,2,3,4,5,6,7,8,9,0],
+                'allowArray' => true,
+                'message' => '{attribute} must be between 0 and 9.',
+            ],
+        ];
+    }
+}
+```
+
+И вроде всё уже хорошо, валидация работает:
+
+```php
+$model = new Form();
+$model->load([1,11,3], '');
+$model->validate(); // false
+$model->getErrors(); // [
+                     //     'data' => ['Data must be between 0 and 9.']
+                     // ]
+```
+
+Но вот не указано в каком именно элементе произошла ошибка.
+
+В `yii2` есть встроенный валидатор `EachValidator` который позволяет применить правило валидации к каждому элементу массива:
+
+```php
+class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            ['data', 'required',],
+            [
+                'data',
+                EachValidator::class,
+                'rule' => [
+                    RangeValidator::class,
+                    'range' => [1,2,3,4,5,6,7,8,9,0],
+                    'message' => '{attribute} must be between 0 and 9.',
+                ],
+            ],
+        ];
+    }
+}
+``` 
+
+Но вывод сообщения об ошибке от этого не изменится.
+
+Фронт у нас уже умеет конвертировать "плоские" ошибки во вложенные:
+
+```php
+// вот такое сообщение
+[
+    'data_1' => ['Data must be between 0 and 9.'],
+]
+// превратит в такое:
+[
+    'data' => [
+        1 => ['Data must be between 0 and 9.'],
+    ],
+]
+// и подсветит соответствующий элемент в форме.
+```
+
+Но вот писать каждый раз кастомный способ валидации поля мне не хочется, а хочется чтобы `EachValidator` сам добавлял в название атрибута индекс элемента который не прошёл валидацию.
+
+Вариант с расширением и переписыванием метода `validateAttribute` мне очень не понравился тем, что, фактически, мне нужно скопировать метод целиком и дописать в него оду строчку:
+
+```php
+public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    $attribute = sprintf('%s_%d', $attribute, $key); // <-- вот эта строчка
+    if ($this->allowMessageFromRule) {
+        $validationErrors = $dynamicModel->getErrors($attribute);
+        $model->addErrors([$attribute => $validationErrors]);
+    } else {
+        $this->addError($model, $attribute, $this->message, ['value' => $v]);
+    }
+
+    // ...
+}
+```
+
+В какой-то момент, при очередном перечитывании этого метода, мне пришла в голову идея: что если бы я мог знать какой элемент сейчас проходит валидацию, то я мог бы где-то в другом месте изменить название атрибута добавив к нему индекс элемента который не прошёл валидацию?
+
+Сделать это можно подменив значение валидируемой модели на объект, который бы нам и сообщил, при необходимости, какой элемент сейчас не прошёл валидацию.
+
+В самом начале метода есть проверка на тип валидируемого поля:
+
+```php
+public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    if (!is_array($arrayOfValues) && !$arrayOfValues instanceof \ArrayAccess)
+
+    // ...
+}
+```
+
+Под условие `!$arrayOfValues instanceof \ArrayAccess` отлично подходит `ArrayIterator`, а ещё у него есть метод `key()` возвращающий индекс текущего элемента.
+
+Так, а как мне подменить `array` в модели на `ArrayIterator`? Писать в каждую модель какие-то преобразования можно, конечно, но это:
+
+1. Это нужно не забыть сделать в каждой новой модели
+2. Старые модели, в которых нужен этот функционал, нужно будет дописывать
+3. Да и просто это всё очень лениво делать
+
+Очень быстро мне пришла в голову идея с прокси-объектом: мы можем подменить исходную модель на прокси, который подменит `array` на `ArrayIterator`, а так же, в нужный момент, сможет изменить имя атрибута (т.е. в момент добавления сообщения об ошибке).
+
+```php
+class ProxyModel extends Model {
+    private ArrayIterator $data;
+
+    public function __construct(private Model $model, private string $attribute, $config = []) {
+        $this->data = new ArrayIterator($model->{$attribute};);
+    }
+
+    public function __get($name): mixed
+    {
+        return $this->data;
+    }
+
+    public function __set($name, $value): void
+    {
+        $this->model->{$name} = $value->getArrayCopy();
+    }
+
+    public function addError($attribute, $error = '')
+    {
+        $attribute = sprintf('%s_%d', $attribute, $this->data->key());
+        $this->model->addError($attribute, $error);
+    }
+}
+```
+
+Теперь можно расширить `EachValidator` без переписывания методов:
+
+```php
+class EachItemValidator extends EachValidator
+{
+    public function validateAttribute($model, $attribute): void
+    {
+        $proxyModel = new ProxyModel($model, $attribute);
+
+        parent::validateAttribute($proxyModel, $attribute);
+    }
+}
+```
+
+Перепишем модель на использование нового валидатора:
+
+```php
+class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            ['data', 'required',],
+            [
+                'data',
+                EachItemValidator::class,
+                'rule' => [
+                    RangeValidator::class,
+                    'range' => [1,2,3,4,5,6,7,8,9,0],
+                    'message' => '{attribute} must be between 0 and 9.',
+                ],
+            ],
+        ];
+    }
+}
+``` 
+Результат будет такой:
+
+```php
+$model = new Form();
+$model->load([1,11,3], '');
+$model->validate(); // false
+$model->getErrors(); // [
+                     //     'data_1' => ['Data must be between 0 and 9.']
+                     // ]
+```
+
+Единственная проблема - это проверка поля на прохождение валидации будет возвращать `true`:
+
+```php
+$model = new Form();
+$model->load([1,11,3], '');
+$model->validate(); // false
+$model->hasErrors(); // true
+$model->hasErrors('data'); // false
+```
+
+---
+
+[Issue](https://github.com/4irik/log/issues/5) для комментариев
+
+Мой ТГ - https://t.me/stdi0_h
+
+
+---
+
+<https://4irik.github.io/log/post/laravel-form-in-yii2.md> (2025-01-07)
+
+# Валидация форм yii2 как в Laravel
+
+![alt text](../assets/laravel-form-in-yii2/laryii2-form.png)
+
+Сейчас работаю над проектом на `yii2` весь backend которого - REST-API.
+Соответственно, там много форм и много шаблонного кода в действиях (`Action`):
+
+```php
+public function run(Request $request): FormName|ResponseName
+{
+    $form = new FormName();
+    $form->load($request->getBodyParams());
+    if (!$form->validate()) {
+        return $form;
+    }
+
+    // ...
+
+    return new ResponseName($data);
+}
+```
+
+Надоело мне его писать каждый раз, а, кроме того, мне не нравится:
+1) в сигнатуре ответа у нас два типа: форма, на случай если что-то передали не то, и, собственно, сам ответ;
+2) код работы с формой сервисный, т.е. не несёт никакой смысловой нагрузки, а лишь только занимает место и отнимает время при чтении/написании
+
+Хочется как в Laravel: если данные не прошли валидацию, то и метод контроллера не запустится.
+Т.е. чтобы было как-то так:
+
+```php
+public function run(FormName $form): ResponseName
+{
+    // ...
+
+    return new ResponseName($data);
+}
+```
+
+Тут сразу в голову приходят `middleware` и метод `beforeAction`, но первыx в `yii2` не завезли а второй не подходит по причине отсутсвия возможности вернуть ответ из него пользователю кроме как кинуть исключение.
+
+В голову пришли два варианта решения:
+
+1) Сделать наследника от `Action`, переопределить у него метод `runWithParams` и все свои классы уже наследовать от него;
+2) Подменить в автозагрузке класс `Action` на свой.
+
+Первый вариант не особо подходит потому как придётся перелапатить весь проект, 
+второй меня смущает тем что при обновлении фреймворка нужно будет внимательно посмотреть не поменяли ли там чего в классе `Action`, 
+но, пока что, ничего лучше я не придумал (да и в первом варианте тоже просто так обновляться будет немного тревожно).
+
+Второй путь выглядит так:
+
+1) Копируем `yii\base\Action` в свою директорию (оставляем у него исходный namespace) и переписываем метод `runWithParams`:
+
+```php
+<?php
+
+namespace yii\base;
+
+use Yii;
+
+class Action extends Component
+{
+    // ... 
+
+    public function runWithParams($params)
+    {
+        if (!method_exists($this, 'run')) {
+            throw new InvalidConfigException(get_class($this) . ' must define a "run()" method.');
+        }
+        $args = $this->controller->bindActionParams($this, $params);
+        Yii::debug('Running action: ' . get_class($this) . '::run(), invoked by ' . get_class($this->controller), __METHOD__);
+        if (Yii::$app->requestedParams === null) {
+            Yii::$app->requestedParams = $args;
+        }
+        if ($this->beforeRun()) {
+            $result = null;
+            $request = Yii::$app->getRequest();
+            foreach ($args as $value) {
+                if ($value instanceof Model) {
+                    $value->load(match ($request->getMethod()) {
+                        'POST' => $request->getBodyParams(),
+                        default => $request->getQueryParams()
+                    });
+
+                    if (!$value->validate()) {
+                        $result = $value;
+                        break;
+                    }
+                }
+            }
+
+            $result = is_null($result)
+                ? call_user_func_array([$this, 'run'], $args)
+                : $result;
+
+            $this->afterRun();
+
+            return $result;
+        }
+
+        return null;
+    }
+
+    // ... 
+}
+```
+
+2) Подменяем в автозагрузке исходный класс на свой:
+
+```php
+// bootstrap.php
+
+// ...
+
+Yii::$classMap['yii\base\Action'] = __DIR__ . '/../component/Action.php';
+```
+
+3) Указываем в конфиге приложения, в разделе `components`, класс нашей формы (чтобы контейнер приложения смог создать объект формы, иначе он скажет что не знает таких):
+
+```php
+<?php
+
+return [
+    'components' => [
+	// ...
+        FormName::class => FormName::class,
+    ],
+]
+```
+
+На этом всё: если пришёл запрос, и форма не прошла валидацию, пользователь увидит ответ с ошибками, действие в контроллере не запустится, а мы не будем писать шаблонный код создания наполнения и валидации формы каждый раз. 
+
+Happy end!
+
+---
+
+[Issue](https://github.com/4irik/log/issues/4) для комментариев
+
+Мой ТГ - https://t.me/stdi0_h
+
+
+---
+
+<https://4irik.github.io/log/post/clojure-simple-web-app.md> (2024-10-11)
+
+# Пишем простое web-приложение на Clojure
+
+Давно задумывался о том чтобы написать что-нибудь на чём-то вроде Lisp (кажется, с тех пор как прочитал перевод статьи о том как ещё в 1996, в США, люди делали на нём что-то вроде интернет-магазинов и тех, кто писал на С/С++, за конкурентов вообще не считали :D (кстати, никто не даст ссылку на неё?)). Даже свою [реализацию](https://github.com/4irik/lisphp) написал. Собственно, её я и думал использовать, и, заодно, доработать моменты которые вылезут в процессе. Но вот что мне это даст в плане возможностей поиска работы? Да, я лучше пойму как писать программы с большим количеством скобок :D, но не более, а надо бы ещё знать какие-либо инструменты, особенности языка и инструментов. В общем: может быть, когда-нибудь.
+
+Я уже некоторое кол-во лет, периодически, посматриваю на Clojure и Haskell, даже пробовал на втором писать hello-world'ы (и даже писать на PHP в функциональном стиле, но это было: во-первых сложно читаемо, во-вторых окружающие смотрели на код вот так `:-[ ]` а на меня с сожалением %) ). Есть ещё сам Lisp Scheme и Racket, но, на сколько я знаю, из функциональных языков, только Clojure и Haskell, сейчас, хоть как-то используются за пределами университетов.
+
+> [!NOTE]
+> Код смотреть тут - https://github.com/4irik/simple-clojure-web-app.
+
+## Требования к ПП
+
+ Реализовать CRUD-приложение с данными пациента.
+
+**Dataset:**
+
+- ФИО пациента
+- Пол
+- Дата рождения
+- Адрес
+- Номер полиса ОМС
+
+### Функционал
+
+- [ ] просмотр списка пациентов
+- [ ] поиск
+- [ ] фильтрация
+- [ ] создание
+- [ ] удаление
+- [ ] редактирование
+- [ ] валидация
+
+### Дополнительно
+
+- без фреймворков
+- использовать vim/emacs
+- пишем тесты
+- REPL-driven разработка
+- CI (сборка по коммиту)
+- подготовить продукт к развёртыванию в K8s
+- в качестве СУБД PgSql
+
+## Подготовка
+
+### Инфраструктура
+
+Будем, как всегда, работать через Docker. Т.к. у нас, кроме самой Clojure есть ещё и СУБД, то используем `docker compose`. 
+
+Посмотрим есть ли что среди Docker-образов. Есть, образ, даже, официальный - https://hub.docker.com/_/clojure. Читаем: 
+
+> 1. leiningen⁠
+>    1. The oldest and probably most common tool
+
+этот подходит, берём последнюю версию. Сразу же берём и pgsql:
+
+*docker-compose.yml:*
+
+```yml
+services:
+    app:
+        image: clojure:temurin-23-lein-alpine
+        restart: always
+        working_dir: /app
+        volumes:
+            - ./:/app
+    db:
+        image: postgres:17.0-alpine3.20
+        restart: always
+        # set shared memory limit when using docker-compose
+        shm_size: 128mb
+        # or set shared memory limit when deploy via swarm stack
+        #volumes:
+        #  - type: tmpfs
+        #    target: /dev/shm
+        #    tmpfs:
+        #      size: 134217728 # 128*2^20 bytes = 128Mb
+        ports:
+            - 5432:5432
+        environment:
+            POSTGRES_PASSWORD: pswd
+            POSTGRES_DB: patient_db
+            PGDATA: ./pgdata
+
+```
+
+*Конфиг для postgres взял из примера на странице хаба.*
+
+Тут же накидаем `Makefile`:
+
+```make
+help: ## Show this help
+	@printf "\033[33m%s:\033[0m\n" 'Available commands'
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[32m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+build: ## Build containers
+	docker compose build
+
+up: ## Run application
+	docker compose up -d
+
+down: ## Down application
+	docker compose down
+
+restart: down up ## Restart application
+
+shell: ## Shell at clojure docker
+	docker compose exec app bash
+
+log: ## Show container logs
+	docker compose logs -f
+```
+
+### Первые шаги
+
+Т.к. в Clojure я новичок, то потребовалось некоторое время чтобы понять что `lein` - это [leiningen](https://leiningen.org/), сборщик проекта а не какая-то специфическая версия кложи. Поначалу я искал в docker-образе что-то вроде `clojure` и `clj` и не мог найти, потом всё встало на свои места.
+
+Заходим в docker-образ и создаём каркас приложения:
+
+*shell:*
+
+```shell
+$ make start && make shell
+$ lein new patient
+```
+
+получилось что-то вроде этого:
+
+*shell:*
+
+```shell
+$ tree
+.
+├── CHANGELOG.md
+├── LICENSE
+├── Makefile
+├── README.md
+├── doc
+│   └── intro.md
+├── docker-compose.yml
+├── project.clj
+├── resources
+├── src
+│   └── patient
+│       ├── core.clj
+├── target
+│   ├── classes
+│   │   └── META-INF
+│   │       └── maven
+│   │           └── patient
+│   │               └── patient
+│   │                   └── pom.properties
+│   ├── repl-port
+│   └── stale
+│       └── leiningen.core.classpath.extract-native-dependencies
+└── test
+    └── patient
+        └── core_test.clj
+
+14 directories, 14 files
+```
+
+У нас есть тесты, попробуем их запустить:
+
+*shell:*
+
+```shell
+$ lein test
+
+lein test patient.core-test
+
+lein test :only patient.core-test/a-test
+
+FAIL in (a-test) (core_test.clj:7)
+FIXME, I fail.
+expected: (= 0 1)
+  actual: (not (= 0 1))
+
+Ran 1 tests containing 1 assertions.
+1 failures, 0 errors.
+Subprocess failed (exit code: 1)
+```
+
+Хорошо, что-то уже работает. Добавим запуск тестов в `Makefile`:
+
+
+*Makefile:*
+
+```Makefile
+test: ## Run app tests
+	docker compose exec app lein test
+```
+
+Заглянем в файл `core.clj`:
+
+*core.clj:*
+
+```clj
+(ns patient.core)
+
+(defn foo
+"I don't do a whole lot."
+  [x]
+  (println x "Hello, World!"))
+```
+
+Для того чтобы у нас что-то скомпилировалось надо добавить функцию `-main`:
+
+*core.clj:*
+
+```clj
+(ns patient.core)
+
+(defn -main
+  [& args]
+  (println "Hello, World!"))
+
+(defn foo
+;; ...
+```
+
+Теперь попробуем это всё собрать и запустить:
+
+*shell:*
+
+```shell
+$ lein run -m patient.core
+Hello, World!
+```
+
+Добавляем команду запуска в `Makefile`:
+
+*Makefile:*
+
+```Makefile
+run: ## Run application
+	docker compose exec app lein run -m patient.core
+```
+
+### Редактор
+
+У меня уже стоял Emacs и даже был немного преднастроен. Уже не помню для чего. Укажу часть `init.el` относящуюся к этому проекту:
+
+*init.el:*
+
+```lisp
+(use-package cider
+  :ensure t)
+
+(use-package clojure-mode
+  :ensure t)
+```
+
+Хорошо бы добавить REPL. Нагуглил эту статью - https://grishaev.me/clj-repl-part-4/#nrepl-в-docker. Делаем по ней:
+
+*project.clj:*
+
+```clj
+(defproject patient "0.1.0-SNAPSHOT"
+  ;; ...
+  :profiles
+  {:docker
+	{:repl-options {:port 9911
+		        :host "0.0.0.0"}
+	:plugins [[cider/cider-nrepl "0.50.2"]]}})
+```
+
+*docker-compose.yml:*
+
+```yml
+services:
+    app:
+        command: ["lein", "with-profile", "+docker", "repl", ":headless"]
+```
+
+Перезапускаем наш docker-образ и пытаемся присоединиться в emacs:
+
+```
+M-x cider-connect RET 127.0.0.1 RET 9911 RET
+```
+
+![nRepl работает!](../assets/clojure-simple-web-app/repl-emacs-test.png)
+
+Отлично! Хорошо бы ещё не вводить эту строчку каждый раз когда нужен `REPL`, но этим займёмся потом. 
+
+## Реализация
+
+Собственно, т.к. писать я всё собрался на Clojure и ClojureScript, то, легче будет если решать задачи постепенно. Пока я ещё не знаю ни как писать фронт ни как писать бэк. Хочу начать с бэка, т.к. он мне более понятен (да и не будет ничего работать без него :D). 
+
+Если поискать как можно на Clojure сделать web-сервис то можно найти и [примеры](https://github.com/chris-emerson/rest_demo) (к которым хорошо бы ещё иметь описание того что там и зачем) реализации и [библиотеки](https://github.com/metosin/reitit) которые многое на себя берут.
+
+Мне хотелось бы собрать всё самому, так что в примеры я буду подглядывать а библиотеки, которые уже всё могут, использовать не буду, что бы, так сказать, лучше прочувствовать каково это.
+
+### Backend
+
+#### Minimal app
+
+Недолгий поиск привёл меня на страничку ["Введение в веб-разработку на Clojure"](https://grishaev.me/clj-book-web-1/). В прошлый раз [статья](https://grishaev.me/clj-repl-part-1/) этого автора мне уже помогла когда я делал для своего [REPL'а](https://github.com/4irik/lisphp) многострочный ввод (собственно и саму идею его сделать я оттуда почерпнул). Бегло прочитав статью решил что буду следовать ей.
+
+Напишем начальную реализацию приложения:
+
+*core.clj:*
+
+```clj
+;; ...
+
+(defn app
+  [request]
+  (let [{:keys [uri request-method]} request]
+    {:status 200
+     :headers {"Content-Type" "text/plain"}
+     :body (format "You requested %s %s"
+                   (name request-method)
+                   uri)}))
+```
+
+Чтобы проверить как эта функция работает нужно её скомпилировать, для этого ставлю курсор на последнюю скобку и нажимаю `C-x C-e`, затем перехожу в `REPL` (`C-c C-z`) и вызываем её:
+
+*REPL:*
+
+```clj
+patient.core> (app {:request-method :get :uri "/index.html"})
+{:status 200,
+ :headers {"Content-Type" "text/plain"},
+ :body "You requested get /index.html"}
+```
+
+Всё работает. Двигаемся дальше.
+
+#### Web-сервер
+
+Добавим в зависимости два пакета:
+
+*project.clj:*
+
+```clj
+;; ...
+:dependencies [[org.clojure/clojure "1.12.0"]
+               ;; base web-app
+               [ring/ring-core "1.12.2"]
+               ;; web-server
+               [ring/ring-jetty-adapter "1.12.2"]
+               ]
+```
+
+Чтобы их скачать нужно запустить `lein deps`. Добавим сразу эту команду в `Makefile`:
+
+*Makefile:*
+
+```Makefile
+deps: ## Upload dependencies
+	docker compose exec app lein deps
+```
+
+Сделаем так, чтобы сервер стартовал при запуске нашего приложения через `lein`.
+
+*core.clj:*
+
+```clj
+;; ...
+
+(require '[ring.adapter.jetty :refer [run-jetty]])
+
+;; ...
+
+(defn -main
+  [& args]
+  (run-jetty app {:port 8080 :join? true}))
+```
+
+прокинем порт `8080` из докера во вне:
+
+*docker-compose.yml:*
+
+```yml
+services:
+    app:
+        # ...      
+        ports:
+            - 9911:9911
+            - 8080:8080
+```
+
+и запустим наше приложение:
+
+*shell:*
+
+```shell
+$ make restart && make run
+Retrieving org/apache/commons/commons-parent/52/commons-parent-52.pom from central
+Retrieving org/eclipse/jetty/jetty-project/11.0.21/jetty-project-11.0.21.pom from central
+Retrieving com/fasterxml/jackson/jackson-bom/2.17.0/jackson-bom-2.17.0.pom from central
+...
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Ошибок нет, и если зайти на `http://127.0.0.1:8080` то увидим:
+
+```text
+You requested get /
+```
+
+Тут видно что функция `app` отработала вернув метод запроса и URL.
+
+**Небольшое отступление к инфраструктуре:**
+
+Всё работает, но сейчас, т.к. я сижу с мобильного интернета, мне более важно другое: идёт скачивание всякого, скачивается всякое, естественно, в директорию внутри docker-образа, изменения в которой не сохраняются между запусками. Так мы каждый раз будем всё скачивать. Надо что-то делать. Всё в [той же статье](https://grishaev.me/clj-repl-part-4/#nrepl-в-docker) есть целых два решения:
+
+1. прокинуть `/root/.m2` во вне
+2. в профиль `:docker` добавить параметр `:local-repo`
+
+Если пойти по второму пути то нужно будет всё и всегда запускать с указанием этого профиля, иначе всё что будет скачиваться будет скачиваться внутрь docker-контейнера. Первый же путь избавляет от необходимости помнить о параметрах запуска чего бы то ни было. Выбираем его.
+
+*docker-compose.yml:*
+
+```yml
+services:
+    app:
+        # ...
+        volumes:
+            - ./:/app
+            - ./.m2:/root/.m2
+```
+
+*Теперь возвращаемся к нашему web-приложению*
+
+#### Роутинг
+
+Теперь, когда у нас что-то заработало, пора подумать о роутинге. Всё в той же статье автор описывает два варианта:
+
+1. Compojure
+2. Bidi
+
+И чуть ниже пишет:
+
+> По субъективным ощущениям, с Compojure легче начать. У библиотеки достойная документация с примерами.
+
+Мне этого достаточно. Выбираю Compojure.
+
+*project.clj:*
+
+```clj
+(defproject patient "0.1.0-SNAPSHOT"
+  ;; ...
+  :dependencies [
+                  ;; ...
+                  [compojure "1.7.1"]
+                ]
+  ;; ...
+```
+
+У меня уже есть в Makefile команда для установки зависимостей, так что не нужно лезть в сам контейнер, достаточно отправить в shell `make deps`.
+
+Напишем базовые роуты для нашего приложения. Т.к. у нас CRUD то, для работы с данными пациентов, нам нужно:
+
+1. [ ] - GET - для просмотра списка записей
+1. [ ] - POST - для создания записи
+1. [ ] - GET - для просмотра записи
+1. [ ] - PATCH - для внесения правок
+1. [ ] - DELETE - для удаления
+
+*Я разделил доступ к разной функциональности по HTTP-запросам чтобы проще было воспринимать, что каждый из запросов делает. Позже, возможно, я поменяю это.*
+
+Напишем функции-заглушки для этих методов:
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+    {:status 200
+    :headers {"content-type" "text/plain"}
+    :body "list of patients"})
+
+(defn patient-view
+  [request]
+    {:status 200
+    :headers {"content-type" "text/plain"}
+    :body "view patient data"})
+
+;; ...
+```
+
+Так, пока мы не ушли далеко, немного упростим себе жизнь. Каждая функция возвращает одну и ту же структуру:
+
+```clj
+{
+  :status 200
+  :headers {"content-type" "text/plain"}
+  :body "some string"
+}
+```
+
+в которой только значение кейворда `:body` различается. Сделаем функцию-хэлпер:
+
+*core.clj:*
+
+```clj
+(defn make-response
+  [response-string]
+   {:status 200
+   :headers {"content-type" "text/plain"}
+   :body response-string})
+
+(defn patient-list
+  [request]
+  (make-response "list of patients"))
+
+(defn patient-view
+  [request]
+  (make-response "view patient data"))
+
+;;...
+```
+
+Сразу же проверим её работу:
+
+*REPL:*
+
+```clj
+patient.core> (make-response 123)
+{:status 200, :headers {"content-type" "text/plain"}, :body 123}
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "list of patients"}
+```
+
+Compojure предоставляет маркос для написания роутов - `defroutes`, можно писать и без него, но получится немного длиннее (пример с использованием маркоса и без него можно найти в [документации](https://github.com/weavejester/compojure/wiki/Routes-In-Detail#combining-routes)). Опишем наши роуты:
+
+*core.clj:*
+
+```clj
+;;...
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes]])
+
+;; ...
+
+(defroutes app
+  (GET "/"      request (patient-list request))
+  (GET "/patient/:id" request (patient-view request))
+  (POST "/patient" request (patient-create request))
+  (PATCH "/patient/:id" request (patient-update request))
+  (DELETE "/patient/:id" request (patient-delete request))
+  page-404)
+```
+
+Хм.. у нас тут есть группа роутов, это те что начинаются на `/patient`, можно их объединить:
+
+*core.clj:*
+
+```clj
+;; ...
+;; в конец добавлен макрос `context`
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes context]]) 
+
+;; ...
+
+(defroutes app
+  (GET "/"      request (patient-list request))
+  (context "/patient" []
+           (POST "/" request (patient-create request))
+           (context "/:id{[0-9]+}" [id]
+                    (GET "/" request (patient-view request))
+                    (PATCH "/" request (patient-update request))
+                    (DELETE "/" request (patient-delete request))
+                    )
+           )
+  page-404)
+```
+
+тут, как видно, добавился ещё 1 маркос - `context`, а так же, я указал что `id` - это только цифры и он будет доступен в нижестоящих роутах под кейвордом `:id`. Кстати, давайте выведем этот самый `:id` в ответах роутов:
+
+*core.clj:*
+
+```clj
+(defn patient-view
+  [request]
+  (when-let [user-id (-> request :params :id)]
+  (make-response (format "view patient #%s data" user-id))))
+
+;; ...
+```
+
+Проверим:
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+view patient #1 data
+$ curl --request POST http://127.0.0.1:8080/patient
+new patient created
+```
+
+Как видно, я использовал шаблон `%s` вместо `%d`, это потому, что параметр `:id` - объект класса `String`, позже я, думаю, ещё вернусь к этому моменту и поменяю его на класс `Integer`.
+
+Итого, сейчас имеем:
+
+- [x] роуты для CRUD пациента
+- [x] подстановку `ID` пациента в роутах
+- [x] роут для показа списка пациентов
+- [x] обработку 404
+- [ ] роут для поиска пациентов
+- [ ] пагинация списка/поиска
+- [ ] HATEOAS
+
+Оставшиеся два пункта пока оставлю, так же как и оставлю на потом работу с HATEOAS (тут я уже подумываю о том что это будет, всё-таки, REST-приложение).
+
+#### Хранение данных. Первый подход
+
+Итак. Надо как-то хранить данные. В задании у нас указан PostgreSql, и я даже добавил его уже в docker-compose.yml, но пока что я не готов с головой окунуться в работу с ним. Хочется пока что сделать заглушку которая будет всё хранить в памяти.
+
+Что, в итоге я хочу получить:
+
+- [ ] получение всех записей (?)
+- [ ] пагинация
+- [ ] поиск записей (?)
+- [ ] добавление новой записи
+- [ ] удаление записи
+- [ ] получение конкретной записи
+- [ ] обновление записи
+
+*Я поставил знак вопроса в скобках у пунктов которые я не уверен что нужно делать или пока не знаю в каком виде я хочу их видеть.*
+
+Нашёл [статью](https://adambard.com/blog/diy-nosql-in-clojure/) с описанием как ~~из го~~ подручными средствами сделать себе стор. 
+
+##### Добавление новой записи
+
+Пока что сделаю по аналогии без попытки вникнуть что там и как:
+
+*data.clj:*
+
+```clj
+(ns patient.data)
+
+;; "Tables"
+(def patients (atom []))
+
+;; "Schema"
+(def patient-keys [:fio :sex :date-of-birth :address :oms-number])
+
+(defn get-patients
+  []
+  @patients)
+
+(defn get-patient
+  [id]
+  (nth @patients id))
+
+(defn put-patient!
+  [patient]
+  (swap! patients (conj patients patient)))
+```
+
+Тут же попробуем это дело:
+
+*REPL:*
+
+```clj
+patient.core> (ns patient.data)
+nil
+patient.data> (get-patients)
+[]
+patient.data> (put-patient! {:fio "Иванов И.И" :sex true :date-of-birth "10.10.1910" :address "Some address 11" :oms-number "11223344"})
+Execution error (ClassCastException) at patient.data/put-patient! (form-init12253400653348000048.clj:19).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader 'app')
+```
+
+Ну, функция `get-patients` работает, а вот со вставкой, пока проблемы. Почитаем что там, вообще, в оригинальном посте делается при вставке:
+
+```clj
+(def MAX-TWITS 5)
+
+(def twits (atom []))
+
+(def twit-keys [:name :message :timestamp])
+(defn clean-twit [twit]
+  (-> twit
+    (select-keys twit-keys)
+    (assoc :timestamp (System/currentTimeMillis))))
+
+(defn put-twit! [twit]
+    (swap! twits #(take MAX-TWITS (conj % (clean-twit twit)))))
+```
+
+Так. Выдвинем предположения:
+
+- `take` берёт только `MAX-TWITS` из всего набора
+- `conj` - добавляет запись в конец вектора
+- `clean-twit` - добавляет в твит текущее время в миллисекундах
+ - `swap!` - обновляет вектор `twits`
+
+теперь выпишем непонятные вещи:
+
+- `conj % ...` - почему тут не `twits` и что значит `%`?
+- `#(take ...` - без понятия что эта запись означает.
+
+Я пытался найти что такое `%`, но ответ был в ответе на другой вопрос - что такое `#(...`.  Итак:
+
+- `#(take ...` - особая форма записи анонимной функции, можно было бы писать `(fn [arg ] ...)`
+- `%` - подстановка параметра в особой форме записи анонимной функции, если бы параметров было несколько то они бы обозначались цифрами - `%1` `%2` и т.д.
+
+Получается что `#(take...)` - анонимная функция, которая принимает 1 аргумент и её результат подставляется вместо в `twits`. Но откуда она берёт свой аргумент? Почитаем что там [пишут](https://clojuredocs.org/clojure.core/swap!) про `swap!`:
+
+> (swap! atom f)
+>
+> Atomically swaps the value of atom to be:
+> (apply f current-value-of-atom args).
+
+Т.е. наша анонимная функция будет применена к значению атома. Вот и ответ.
+
+Хорошо, попробуем переписать функцию `put-patient!`:
+
+*data.clj:*
+```clj
+(defn put-patient!
+  [patient]
+  (swap! patients #(conj % patient)))
+```
+
+*REPL:*
+
+```clj
+patient.data> (put-patient! {:fio "Иванов И.И" :sex true :date-of-birth "10.10.1910" :address "Some address 11" :oms-number "11223344"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}]
+```
+
+Работает! Вот только я всё равно не понял почему `(conj patients patient)` не работает а `(conj % patient)` делает то что нужно, пока буду предполагать что `%` - это `current-value-of-atom`, т.е. не сам атом а значение содержащееся в нём. Кстати, как это можно проверить?
+
+Нагуглил конструкцию `defer` (имеет сокращённую форму - `@`) которая возвращает значение атома. Проверим:
+
+*REPL:*
+
+```clj
+patient.data> (conj patients {:test "test"})
+Execution error (ClassCastException) at patient.data/eval12859 (form-init12253400653348000048.clj:92).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader 'app')
+patient.data> (conj @patients {:test "test"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}]
+```
+
+Ну что ж, предположение оказалось верным. Но если посмотреть примеры в документации, то, кажется, что можно сделать ещё проще:
+
+*REPL:*
+
+```clj
+patient.data> (swap! patients conj {:test "test"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}]
+```
+
+Так и запишем в нашей функции добавления новых записей:
+
+*data.clj:*
+
+```clj
+(defn put-patient!
+  [patient]
+  (swap! patients conj patient))
+```
+
+##### Удаление записи
+
+*data.clj:*
+
+```clj
+(defn del-patient!
+  [id]
+  (swap! patients ???))
+```
+
+ И что же тут можно сделать? Первая мысль - `filter`, но он работает только со значениями, а у меня индекс в векторе. Нашёл решение на [StackOverflow](https://stackoverflow.com/questions/1394991/clojure-remove-item-from-vector-at-a-specified-location) - использовать `subvec` и `concat`! Попробуем, сначала в общем виде:
+
+ *REPL:*
+
+ ```clj
+patient.data> (def m [0 1 2 3 4 5 6 7 8 9])
+#'patient.data/m
+patient.data> (#(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) m 2)
+(0 1 3 4 5 6 7 8 9)
+ ```
+
+ Работает, перенесём это в файл:
+
+ *data.clj:*
+
+ ```clj
+(defn del-patient!
+  [id]
+  (swap! patients #(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) id))
+```
+
+ *REPL:*
+
+ ```clj
+;; посмотрим что у нас уже хранится
+patient.data> (get-patients)
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:test "test"}
+ {:fio "Петров П.П",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "Some address 222",
+  :oms-number "22334455"}]
+;; удалим запись под индексом `1`
+patient.data> (del-patient! 1)
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "Some address 222",
+  :oms-number "22334455"}]
+;; пропала запись `{:test "test"}`
+```
+
+*Тут наметилась проблема: если я удаляю запись то следующая за ней занимает её место, это создаст проблемы когда мы будем удалять записи через web-приложение потому как клиент не будет знать что **идентификаторы записей поменялись**, либо надо будет отправлять ему, каждый раз, новые идентификаторы.*
+
+Оставим её пока, вернёмся когда доделаем все CRUD операции. *Кажется, что это решение добавит мне потом работы, но уж очень хочется продвинуться хоть немного вперёд.*
+
+##### Обновление записи
+
+Кажется что обновление записи очень похоже на удаление, с той только разницей что вместо удаляемого элемента нужно подставить новый:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  [id patient]
+  (swap! patients #(vec (concat (subvec %1 0 %2) [%3] (subvec %1 (+ 1 %2)))) id patient))
+```
+
+*REPL:*
+
+```clj
+;; заменим адрес у пациента номер 2
+patient.data> (upd-patient! 1 {:fio "Петров П.П." :sex true :date-of-birth "11.11.1911" :address "new some address 333" :oms-number "22334455"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П.",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "new some address 333",
+  :oms-number "22334455"}]
+```
+
+Работает, но есть две вещи которые мне не нравятся:
+
+1. нужно указывать индекс пациента (проблема связанная с этим уже подсвечена в предыдущем параграфе)
+1. нужно слать полный набор данных
+
+Попробуем, пока что, разобраться с проблемой №2.
+
+Конструкция(?) `assoc` позволяет изменить значение в отображении (`map`):
+
+*data.clj:*
+
+```clj
+(defn change-patient-one-value!
+  "Изменят одно значение в записи пациента"
+  [item key new-value]
+  (assoc item key new-value))
+```
+
+*REPL:*
+
+```clj
+patient.data> (change-patient-one-value! {:test "test"} :test "new value")
+{:test "new value"}
+```
+
+Дальше, кажется что можно получить на вход мапу с изменениями и, через её редукцию, обновить данные пациента:
+
+*data.clj:*
+
+```clj
+(defn change-patient-values!
+  "Изменяет значения в записи пациента"
+  [patient new-values-map]
+  (reduce
+   #(let [key (%2 0) val (%2 1)] (change-patient-one-value! %1 key val))
+   patient
+   (seq new-values-map)))
+```
+
+*REPL:*
+
+```clj
+patient.data> (change-patient-values! {:t1 "test 1" :t2 "test 2" :t3 "test 3"} {:t1 "new test 1" :t3 "new test 3"})
+{:t1 "new test 1", :t2 "test 2", :t3 "new test 3"}
+```
+
+Осталось это всё собрать в одном месте:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  "Обновляет данные пациента (можно передавать только обновлённые поля)"
+  [id new-data-of-patient]
+  (swap!
+   patients
+   #(vec
+     (concat
+      (subvec %1 0 %2)
+      [(change-patient-values! %3 %4)]
+      (subvec %1 (+ 1 %2))))
+   id
+   (@patients id)
+   new-data-of-patient))
+```
+
+*REPL:*
+
+```clj
+patient.data> (upd-patient! 1 {:oms-number "556677"})
+[{:fio "Иванов И.И",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "Some address 11",
+  :oms-number "11223344"}
+ {:fio "Петров П.П.",
+  :sex true,
+  :date-of-birth "11.11.1911",
+  :address "new some address 333",
+  :oms-number "556677"}]
+```
+
+##### Получение данных конкретной записи
+
+Я уже сделал этот метод, слизав его из статьи которую упомянул в начале:
+
+*data.clj:*
+
+```clj
+(defn get-patient
+  [id]
+  (nth @patients id))
+```
+
+но тогда я не понимал как это работает. Сейчас, уже зная про атомы и `defer` я не знаю только что делает `nth`. Заглянем в [документацию](https://clojuredocs.org/clojure.core/nth):
+
+> Returns the value at the index. get returns nil if index out of
+bounds, nth throws an exception unless not-found is supplied.
+
+т.е. если я укажу индекс не входящий в вектор то получу исключение. Кажется это то что нужно, я пока не знаю как буду его обрабатывать но мне хотелось бы знать что что-то идёт не так.
+
+*REPL:*
+
+```clj
+patient.data> (get-patient 0)
+{:fio "Иванов И.И",
+ :sex true,
+ :date-of-birth "10.10.1910",
+ :address "Some address 11",
+ :oms-number "11223344"}
+patient.data> (get-patient 2)
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (form-init12253400653348000048.clj:15).
+null
+```
+
+##### Подведём итог
+
+- [x] получение всех записей (?)
+- [ ] пагинация
+- [ ] поиск записей (?)
+- [x] добавление новой записи
+- [x] удаление записи
+- [x] получение конкретной записи
+- [x] обновление записи
+
+Из запланированного почти всё сделано. Оставшиеся два пункта я пока оставлю, хочется уже чтобы приложение заработало хоть в каком-то виде.
+
+#### Minimal app: Добавляем хранение данных.
+
+Начнём с добавления новой записи, потом, думаю, проверим как работает вывод всех пациентов и данных конкретного пациента, затем уже займёмся обновлением и удалением записей. Напишем список чтобы в конце с ним свериться:
+
+- [ ] добавление нового пациента
+- [ ] получение списка пациентов
+- [ ] пагинация списка пациентов
+- [ ] поиск пациентов
+- [ ] получение данных пациента
+- [ ] обновление данных пациента
+- [ ] удаление данных пациента
+
+##### Добавление
+
+Итак, для начала, хочется видеть что данные приходят. Для этого нужно взять данные из `body` из запроса, на помощь, как всегда, приходит StackOverflow, будем использовать `slurp` для того чтобы [превратить поток в строку](https://stackoverflow.com/a/68544475):
+
+*core.clj:*
+
+```clj
+(defn patient-create
+  [request]
+  (make-response (slurp (:body request))))
+```
+
+А на странице документации по `slurp` я нашёл [подсказку](https://clojuredocs.org/clojure.core/slurp#example-588dd268e4b01f4add58fe33) о том, как это всё можно проверить в REPL: 
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body ":test 123"}
+```
+
+*shell:*
+
+```shell
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :date-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-number \"778899\""
+:fio "Сидоров С.С." :sex true :date-of-birth "01.01.1901" :address "sidorov s.s. address 1" :oms-number "778899"
+```
+
+Отлично!
+
+Теперь нужно эту строку превратить в мапу. К счастью, ответ [быстро нашёлся](https://stackoverflow.com/a/35707024):
+
+*REPL:*
+
+```clj
+patient.core> (clojure.edn/read-string "{:a 1 :b 2}")
+{:a 1, :b 2}
+```
+
+*core.clj:*
+
+```clj
+(require '[patient.data :as db])
+
+;; ...
+
+(defn patient-create
+  [request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+    (db/put-patient! patient-map))
+  (make-response nil))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+```
+
+*shell:*
+
+```shell
+$ curl -D - --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :date-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-number \"778899\""
+HTTP/1.1 200 OK
+Date: Wed, 16 Oct 2024 10:36:01 GMT
+Content-Type: text/plain
+Content-Length: 0
+Server: Jetty(11.0.21)
+```
+
+##### Список всех пациентов
+
+Кажется, что нужно просто получить данные всех пациентов и вывести их в каком-то виде:
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (db/get-patients)))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 123")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 222")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-create {:body (into-array Byte/TYPE ":test 333")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body [{:test 123} {:test 222} {:test 333}]}
+```
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=ISO-8859-1"/>
+<title>Error 500 java.lang.IllegalArgumentException: No implementation of method: :write-body-to-stream of protocol: #&apos;ring.core.protocols/StreamableResponseBody found for class: clojure.lang.PersistentVector</title>
+```
+
+Похоже что нужно превратить вектор из отображений в строку:
+
+*REPL:*
+
+```clj
+patient.core> (str [{:test 123} {:test 222} {:test 333}])
+"[{:test 123} {:test 222} {:test 333}]"
+```
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (str db/get-patients)))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "patient.data$get_patients@185b5398"}
+```
+
+Хм... получилось немного не то на что я рассчитывал, наверное это потому что в `str` я передал не результат функции а саму функцию. 
+
+*core.clj:*
+
+```clj
+(defn patient-list
+  [request]
+  (make-response (str (db/get-patients))))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-list [])
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "[{:test 123} {:test 222} {:test 333}]"}
+```
+
+*shell:*
+
+```shell
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Сидоров С.С.\" :sex true :^Cte-of-birth \"01.01.1901\" :address \"sidorov s.s. address 1\" :oms-n
+umber \"778899\""
+$ curl --request POST http://127.0.0.1:8080/patient --data ":fio \"Петров П.П.\" :sex true :date-of-birth \"10.10.1910\" :address \"petrov p.p. address 1\" :oms-number \"112233\""
+$ curl http://127.0.0.1:8080
+[{:fio "Сидоров С.С.", :sex true, :date-of-birth "01.01.1901", :address "sidorov s.s. address 1", :oms-number "778899"} {:fio "Петров П.П.", :sex true, :date-of-birth "10.10.1910", :address "petrov p.p. address 1", :oms-number "112233"}]
+```
+
+Хорошо. Список пациентов, в каком-то виде, уже есть.
+
+##### Получение данных конкретного пациента
+
+Тут действуем по аналогии с предыдущим пунктом:
+
+*core.clj:*
+
+```clj
+(defn patient-view
+  [request]
+  (let [patient-id (-> request :params :id)]
+    (let [patient (db/get-patient patient-id)]
+      (if patient
+        (make-response (str patient))
+        (page-404 [])))))
+```
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id 2}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "{:test 333}"}
+patient.core> (patient-view {:params {:id 3}})
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (data.clj:17).
+null
+```
+
+Так, не нравится мне что вместо 404 я вижу исключение. В прошлой главе я специально так сделал, чтобы стор кидал исключение если запись не найдена, тогда мне показалось, что при разработке было бы удобно получать исключение если данные не найдены. Я так решил, потому как не был уверен, что смогу понять где у меня вернулся `nil`: потому, что я что-то не так сделал или потому, что данных нет в сторе. Сейчас же мне совершенно не хочется писать обработку исключений для случая который может часто встречаться. Переделаем стор чтобы он возвращал `nil` если ничего не найдено:
+
+*data.clj:*
+
+```clj
+(defn get-patient
+  "Возвращает запись пациента по его ID"
+  [id]
+  (get @patients id))
+```
+
+Теперь всё должно быть ок:
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id 1}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "{:test 222}"}
+patient.core> (patient-view {:params {:id 11}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+```
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+No such a page.
+```
+
+Так, это странно. Но если подумать, то:
+
+*REPL:*
+
+```clj
+patient.core> (patient-view {:params {:id "1"}})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+```
+
+где-то выше я уже писал о том что `:id` - это объект класса `String`, вот и пришло время преобразовать его в `Integer`.
+
+В Compojure есть такая штука - [parameter coercion](https://github.com/weavejester/compojure/wiki/Destructuring-Syntax#parameter-coercion):
+
+*core.clj:*
+
+```clj
+;; ...
+
+(require '[compojure.coercions :refer [as-int]])
+
+;; ...
+
+(defn patient-view
+  [id]
+  (let [patient (db/get-patient id)]
+    (if patient
+      (make-response (str patient))
+      (page-404 []))))
+
+;; ...
+
+(defroutes app
+;; ...
+           (context "/:id{[0-9]+}" [id :<< as-int]
+                    (GET "/" [] (patient-view id))
+;; ...
+```
+
+Тут я сделал сразу две вещи:
+
+1. Передал в `patient-view` только нужные ей параметры
+1. Преобразовал `id` в `Integer` прямо в роуте 
+
+в обоих случаях изменения сделанные в роуте помогли разгрузить целевую функцию избавив её от необходимости совершать действия напрямую не связанные с её назначением.
+
+*Изначально я в роуте я написал `(GET "/" id (patient-view id))`, но вместо идентификатора передавалась мапа содержащая заголовок запроса. Пока не понял почему так.*
+
+*shell:*
+
+```shell
+$ curl http://127.0.0.1:8080/patient/1
+{:fio "Петров П.П.", :sex true, :date-of-birth "10.10.1910", :address "petrov p.p. address 1", :oms-number "112233"}
+```
+
+##### Обновление данных
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+    (db/upd-patient! id patient-map))
+  (make-response nil))
+
+;; ...
+
+(defroutes app
+;; ...
+                    (PATCH "/" request (patient-update id request))
+;; ...
+```
+
+*REPL:*
+
+```clj
+;; добавим пациента
+patient.core> (patient-create {:body (into-array Byte/TYPE ":fio \"Sidorov\" :address \"sidorov s.s. address 1\"")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; проверим что добавилось
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :address \"sidorov s.s. address 1\"}"}
+;; изменим адрес
+patient.core> (patient-update 0 {:body (into-array Byte/TYPE ":address \"sidorov address 2\"")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; посмотрим, изменился ли адрес
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :address \"sidorov address 2\"}"}
+```
+
+Работает, но тут возникает вопрос - "А что если указанной записи не существует?". 
+
+*REPL:*
+
+```clj
+patient.core> (patient-update 10 {:body (into-array Byte/TYPE ":address \"sidorov address 3\"")})
+Execution error (IndexOutOfBoundsException) at patient.data/upd-patient! (data.clj:53).
+null
+```
+
+Можно было и в код заглянуть:
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  ;; ...
+   (@patients id)
+  ;; ...
+```
+
+И тут же второй - "А как себя, в этом случае, поведёт PgSql?". Ответим на него:
+
+*shell:*
+
+```sql
+patient_db=# CREATE TABLE test_table (id serial primary key, data text not null);
+CREATE TABLE
+patient_db=# INSERT INTO test_table ("data") VALUES ('some value 1'), ('some value 2'), ('some value 3');
+INSERT 0 3
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  1 | some value 1
+  2 | some value 2
+  3 | some value 3
+(3 rows)
+
+patient_db=# UPDATE test_table SET data='111' WHERE id=1;
+UPDATE 1
+patient_db=# UPDATE test_table SET data='111' WHERE id=100;
+UPDATE 0
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  2 | some value 2
+  3 | some value 3
+  1 | 111
+(3 rows)
+```
+
+> [!NOTE]
+> За кулисами я добавил в `Makefile` строку:
+>
+> *Makefile:*
+>
+> ```Makefile
+> psql: ## PostgreSql shell
+> 	docker compose exec db psql -U postgres -d patient_db
+> ```
+
+Т.е. видно что ничего страшного не происходит, СУБД просто возвращает кол-во изменённых записей. 
+
+Т.к. я предполагаю что у меня слой хранения как-то связана с проектируемым доменом, то я не буду возвращать кол-во изменённых записей, а верну флаг того, удалось ли изменить запись или нет. Оба значения флага не говорят о какой либо ошибке, они оба нормальны, если будет какая-либо ошибка, то должно быть кинуто исключение.
+
+*data.clj:*
+
+```clj
+(defn upd-patient!
+  "Обновляет данные пациента (можно передавать только обновляемые поля)"
+  [id new-data-of-patient]
+  (def patient (get-patient id))
+  (if (= nil patient)
+    false
+    (do
+      (swap!
+       patients
+       #(vec
+         (concat
+          (subvec %1 0 %2)
+          [(change-patient-values! %3 %4)]
+          (subvec %1 (+ 1 %2))))
+       id
+       patient
+       new-data-of-patient)
+      true)))
+```
+
+*REPL:*
+
+```clj
+patient.data> @patients
+[{:fio "Sidorov",
+  :sex true,
+  :date-of-birth "01.01.1901",
+  :address "sidorov address 2",
+  :oms-number "778899"}
+ {:fio "Petrov",
+  :sex true,
+  :date-of-birth "10.10.1910",
+  :address "sidorov address 3",
+  :oms-number "112233"}]
+patient.data> (upd-patient! 3 {:sex false})
+false
+patient.data> (upd-patient! 1 {:sex false})
+true
+patient.data> @patients
+[{:fio "Sidorov",
+  :sex true,
+  :date-of-birth "01.01.1901",
+  :address "sidorov address 2",
+  :oms-number "778899"}
+ {:fio "Petrov",
+  :sex false,
+  :date-of-birth "10.10.1910",
+  :address "sidorov address 3",
+  :oms-number "112233"}]
+```
+
+Как видно, всё обновляется.
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str "{" patient-raw "}")))
+  (if (db/upd-patient! id patient-map)
+    (make-response nil)
+    (page-404 [])))
+```
+
+*REPL:*
+
+```clj
+;; посмотрим данные пациента
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :sex true, :date-of-birth \"01.01.1901\", :address \"sidorov address 2\", :oms-number \"778899\"}"}
+;; имзеним у него пол
+patient.core> (patient-update 0 {:body (into-array Byte/TYPE ":sex false")})
+{:status 200, :headers {"content-type" "text/plain"}, :body nil}
+;; удостоверимся что пол поменялся
+patient.core> (patient-view 0)
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body
+ "{:fio \"Sidorov\", :sex false, :date-of-birth \"01.01.1901\", :address \"sidorov address 2\", :oms-number \"778899\"}"}
+;; изменим данные у несуществующего пациента
+patient.core> (patient-update 1000 {:body (into-array Byte/TYPE ":sex false")})
+{:status 200,
+ :headers {"content-type" "text/plain"},
+ :body "No such a page."}
+;; как и ожидалось, мы увидили 404 (точнее ответ его заменяющий)
+```
+
+Теперь всё как надо. Остался только один момент: первые 2 строчки функци `patient-update` не относятся к её основному назначению:
+
+*core.clj:*
+
+```clj
+(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str "{" patient-raw "}")))
+  ;; ...
+```
+
+Функционал по вычленению данных пациента из запроса и формированию из них отображения мы можем вынести в [middleware](https://github.com/weavejester/compojure/wiki/Middleware):
+
+*core.clj:*
+
+```clj
+
+;; добавляем `wrap-routes`
+(require '[compojure.core :refer [GET POST PATCH DELETE defroutes context wrap-routes]])
+
+;; ...
+
+(defn patient-create
+  [patient-data]
+  (db/put-patient! patient-data)
+  (make-response nil))
+
+(defn patient-update
+  [id patient-data]
+  (if (db/upd-patient! id patient-data)
+    (make-response nil)
+    (page-404 [])))
+
+(defn wrap-patient-data
+  [handler]
+  (fn
+    [request]
+    (let
+        [patient-raw (slurp (:body request))
+         patient-map (clojure.edn/read-string (str "{" patient-raw "}"))]
+      (handler (assoc request :patient-data patient-map)))))
+
+(defroutes app
+  ;; ...
+           (->
+            (POST "/" {:keys [patient-data]} (patient-create patient-data))
+            (wrap-routes wrap-patient-data))
+            ;; ... 
+                    (->
+                     (PATCH "/" {:keys [patient-data]} (patient-update id patient-data))
+                     (wrap-routes wrap-patient-data))  
+                     ;; ...
+  )
+```
+
+Как видно, я, заодно, исправил и код функции `patient-create`.
+
+Сразу скажу что к записи роутов вида `(-> (...) (...))` я пришёл не сразу. Сначала я писал так:
+
+```clj
+(defroutes app
+  ;; ...
+           (wrap-patient-data
+            (POST "/" {:keys [patient-data]} (patient-create patient-data)))
+            ;; ... 
+                    (wrap-patient-data
+                     (PATCH "/" {:keys [patient-data]} (patient-update id patient-data)))  
+                     ;; ...
+  )
+```
+
+но у меня были проблемы с методом `PATCH` - в функицю `patient-update` значение параметра `id` передавалось как следует а вот `patient-data` был пустым отображением. Расставив принты я выяснил что middleware `wrap-patient-data`, в случае с `PATCH`, вызывается дважды. Сначала я не понимал почему так, но потом вспомнил:  middleware применяется до того как проверится подходит ли роут к запросу:
+
+> If you want middleware to be applied only when a route matches ...
+
+Избежать этого позволяет функция `wrap-routes` вкупе с макросом `->` позволяющим сделать цепочку вызовов.
+
+##### Удаление
+
+Тут всё просто, но есть одна загвоздка:
+
+*REPL:*
+
+```clj
+patient.data> (get-patients)
+[{:test "1"} {:test "2"} {:test "3"}]
+patient.data> (del-patient! 5)
+Execution error (IndexOutOfBoundsException) at patient.data/del-patient!$fn (form-init4821922077780103475.clj:27).
+null
+```
+
+Сейчас мне ничего с этим делать не хочется, сделаю, пока что, проверку наличия записи в обработчике роута:
+
+*core.clj:*
+
+```clj
+(defn patient-delete
+  [id]
+  (if (db/get-patient id)
+    (do
+      (db/del-patient! id)
+      (make-response nil))
+    (page-404 [])))
+
+;; ...
+
+(defroutes app
+  ;; ...
+  (context "/patient" []
+           ;; ...
+           (context "/:id{[0-9]+}" [id :<< as-int]
+                    ;; ...
+                    (DELETE "/" [] (patient-delete id))))
+  ;; ...
+  )
+```
+
+*shell:*
+
+```shell
+# посмотрим весь список 
+$ curl http://127.0.0.1:8080
+[{:fio "Петров П.П.", :sex true} {:fio "Сидоров С.С.", :sex true} {:fio "Иванов И.И.", :sex true}]
+# удалим среднюю запись
+$ curl --request DELETE http://127.0.0.1:8080/patient/1
+# как видим записей осталось две
+$ curl http://127.0.0.1:8080
+[{:fio "Петров П.П.", :sex true} {:fio "Иванов И.И.", :sex true}]
+# попробуем удалить несуществующую запись
+$ curl --request DELETE http://127.0.0.1:8080/patient/10
+No such a page.
+```
+
+##### Итоги
+
+Смотрим что реализовано:
+
+- [x] добавление нового пациента
+- [x] получение списка пациентов
+- [ ] пагинация списка пациентов
+- [ ] поиск пациентов
+- [x] получение данных пациента
+- [x] обновление данных пациента
+- [x] удаление данных пациента
+
+Позже вернёмся к этому чек-листку, как, впрочем, и другим, а сейчас займёмся следующей частью нашего web-приложения!
+
+### Инфраструктура
+
+Пока мы далеко не ушли сделаем шаг в сторону и займёмся инфраструктурой, а именно реализуем следующие два пункта из дополнительного задания:
+
+- CI (сборка по коммиту)
+- подготовить продукт к развёртыванию в K8s
+
+#### CI
+
+Итак, получается, нужно, при коммите:
+
+1. запустить сборку проекта
+1. где-то сохранить результат сборки
+
+Немного обдумаем эти два пункта.
+
+**Запуск сборки**
+
+Какие у нас могут быть варианты? Ну, раз я разрабатываю всё локально, то, кажется, что вариант только один - git-хук. Но, в таком случае, на каждый коммит будет проводиться сборка, что не всегда нужно. Решений несколько:
+
+1. разрабатывать фичи в ветках а git-хук сделать только для master-ветки
+1. добавить флаг в коммит, который отменяте сборку (но тогда, в сообщении коммита будет "служебный мусор" не несущий никакого смысла для человека)
+1. использовать, при коммите, флаг `--no-verify`, но тогда его нужно не забывать ставить каждый раз когда запуск сборки не нужен.
+
+Пока, выходит, что нужны или дополнительные телодвижения или постоянно держать в голове необходимость что-то дополнительно прописать, чтобы отменить сборку. Такое мне не нравится, хочется чтобы всё работало и мне не нужно было ни о чём думать.
+
+Временное решение - **cделаю сборку по требованию**, т.е. через Makefile, а потом, может быть, ещё вернусь к этой теме.
+
+Посмотрим что [предлагает Leiningen](https://leiningen.org/tutorial.html#what-to-do-with-it) в плане сборки проекта:
+
+- uberjar - 1 файл который требует (кажется) только JRE, хорошо подходит для передачи конечному пользователю
+- tar-файл и [lein-tar плагин](https://github.com/technomancy/lein-tar) для развёртывания
+- uberjar со встроенным Jetti c `ring-jetty-adapter` (который у меня уже есть в зависимостях)
+- war-файл и [lein-ring](https://github.com/weavejester/lein-ring)
+
+Ещё я погуглил как, вообще, люди разворачивают свои web-app на Java. Всё что я нашёл - использование jar-файлов. Что ж, [миллионы не могут ошибаться](https://neolurk.org/wiki/Миллионы_не_могут_ошибаться) %). Последуем их примеру, **наш выбор - uberjar**!
+
+**Хранение билдов**
+
+Допустим сборка у нас прошла, что деальше? Дальше надо куда-то сохранить её результат, притом так, чтобы было понятно к какому коммиту он относится (иначе потом замучаешься искать где и когда что-то поломалось, особенно будет весело если сделать новый билд нужно срочно):
+
+- сохранить результат сборки в отдельное место
+- билд должен знать из какого коммита он собран
+
+Ещё у нас есть в задачах подготовка к K8s, а эта штука работает с докером или rkt (я не очень в ней силён, видел один раз, издалека, как-то). Это значит что мы можем уже сейчас пользовать докер для того чтобы подготовиться к следующему этапу и этим решим сразу обе проблемы: хранить всё будем в докер-образах (а там хоть на публичный хаб заливать, хоть на личный, хоть хранить их на локальной машине) а метки у образов будем образовывать c хешем git-коммита из которого собрано приложение.
+
+Решено! **Делаем сборку docker-образа** с готовым к запуску в прод приложением.
+
+##### Docker-образ сборки и запуска
+
+Сначала попробуем сами собрать приложение:
+
+*shell:*
+
+```shell
+$ lein uberjar
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Clojure 1.12.0
+user=> ^C
+```
+
+Собраться то оно собралось но не то что я ожидал, посмотрим что я там писал в Makefile для запуска приложения:
+
+*Makefile:*
+
+```Makefile
+run: ## Run application
+	docker compose exec app lein run -m patient.core
+```
+
+`lein run -m patient.core` - т.е. я явно указываю какой неймспес использовать... хм, похоже пришло время заглянуть в [документацию](https://leiningen.org/tutorial.html#uberjar):
+
+> ... you’ll need to specify a namespace as your :main in project.clj and ensure it’s also AOT (Ahead Of Time) compiled by adding it to :aot ..
+> ...
+> (defproject 
+> ... 
+>  :main my-stuff.core
+>  :aot [my-stuff.core])
+
+Добавим это в наш файл проекта:
+
+*project.clj:*
+
+```clj
+(defproject patient "0.1.0-SNAPSHOT"
+  ;; ...
+  :main patient.core
+  :aot [patient.core])
+```
+
+Попробуем собрать:
+
+*shell:*
+
+```shell
+$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Warning: The Main-Class specified does not exist within the jar. It may not be executable as expected. A gen-class directive may be missing in the namespace which contains the main method, or the namespace has not been AOT-compiled.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class patient.core
+Caused by: java.lang.ClassNotFoundException: patient.core
+```
+
+Читаем документацию далее:
+
+> .. This namespace should have a (:gen-class) declaration in the ns form at the top ..
+>
+> (ns my-stuff.core
+>   (:gen-class))
+
+
+Хорошо, пометим неймспейс:
+
+*core.clj:*
+
+```clj
+(ns patient.core
+  (:gen-class))
+;; ...
+```
+
+*shell:*
+
+```shell
+# запустим сборку
+$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+# теперь попробуем запустить
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Отлично, со сборкой разобрались. Теперь займёмся докер-файлом для сборки и последующего запуска.
+
+*./build/Dockerfile:*
+
+```Dockerfile
+FROM clojure:temurin-23-lein-alpine AS builder
+
+RUN mkdir /app
+WORKDIR /app
+
+COPY . .
+
+RUN cp -r .m2 /root
+
+RUN lein deps
+RUN lein uberjar
+
+FROM ubuntu/jre:8-22.04_edge_49
+
+WORKDIR /app
+COPY --from=builder /app/target/patient-0.1.0-SNAPSHOT-standalone.jar ./app.jar
+
+CMD ["java", "-jar", "app.jar"]
+```
+
+> [!NOTE]
+> Т.к. вся разработка локальная, то я добавил строчку 
+> `RUN cp -r .m2 /root` чтобы не выкачивать каждый раз все зависимости.
+
+> [!WARNING]
+> Есть только одна пробелма с этим подходом: даже если мы уберём из зависимостей какой-либо пакет он всё равно останется в `/root/.m2`, что может привести к невоспроизводимости сборки. Сценарий такой:
+> 1. добавляем зависимость в `project.clj` и ставим её через `lein deps`
+> 1. переключаемся на другую ветку, в которой нет этой зависимости, и используем установленную библиотеку
+> 1. собираем билд
+> 1. очищаем папку `/root/.m2`
+> 1. запускаем `lein deps`
+> 1. запускаем сборку билда которая падает из-за того что нет нужной библиотеки, которую мы ставили в первом шаге
+> 
+> Потом, если не забуду, вернусь к этой проблеме. Сейчас у меня нет готового решения.
+
+Попробуем это всё собрать и запустить:
+
+*shell:*
+
+```shell
+$ docker build -t test-clj-app -f ./build/Dockerfile .
+# ...
+$ docker run --rm -it test-clj-app
+Error: Could not find or load main class java
+```
+
+То ли собралось не так, то ли я не знаю что %). Попробуем запустить этот jar-файл, созданный в нашей среде разработки (т.e. в контейнере `clojure:temurin-23-lein-alpine`), внутри контейнера с JRE:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 java -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class java
+```
+
+Ага, образ с JRE, почему-то не фурычит. Попробуем зайти в него и уже из него запустить jar-файл а потом посмотреть логи:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 bash
+Error: Could not find or load main class bash
+```
+
+Опачки! Идём смотреть [документацию](https://hub.docker.com/r/ubuntu/jre) :D. Видим в ней такой пример:
+
+```Dockerfile
+FROM ubuntu:22.04 AS builder
+RUN apt-get update && apt-get install -y openjdk-8-jdk
+WORKDIR /app
+ADD HelloWorld.java .
+
+RUN javac -source 8 -target 8 HelloWorld.java -d .
+
+FROM ubuntu/jre:8-22.04_edge
+
+WORKDIR /
+COPY --from=builder /app/HelloWorld.class .
+
+CMD [ "HelloWorld" ]
+```
+
+Т.е. я должен передать уже скомпилированный объектный файл (на сколько я это понял). У нас его нет, но есть jar, смотрим можно ли из java запустить jar, судя по [этому ответу](https://stackoverflow.com/a/4936279) на StackOverflow можно. Т.к. в контейнере уже запущена java-машина попробуем передать ей параметры:
+
+*shell:*
+
+```shell
+$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread "main" java.lang.UnsupportedClassVersionError: jakarta/servlet/AsyncContext has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
+        at java.lang.ClassLoader.defineClass1(Native Method)
+        # ...
+```
+
+Уже лучше. Обновим нашу JRE (я уже непомню почему выбрал эту):
+
+*shell:*
+
+```shell
+$ docker pull ubuntu/jre:17-22.04_edge_49
+17-22.04_edge_49: Pulling from ubuntu/jre
+# ...
+$ docker run --rm -it -v ./target:/app ubuntu/jre:17-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread "main" java.lang.NoClassDefFoundError: java/util/SequencedCollection
+        at java.base/java.lang.Class.forName0(Native Method)
+        # ...
+```
+
+Чего-то ему не хватает. Задал вопрос в русскоязычном [telegram-чатике](https://t.me/clojure_ru) кложуры, на что мне ответили, что `SequencedCollection` появился только в Java 21. Ну блин, в официальном [хабе](https://hub.docker.com/r/ubuntu/jre) убунты нет JRE 21, только 8 и 17. Посмотрим что есть ещё:
+
+*shell:*
+
+```shell
+# скачаем новый образ JRE
+$ docker pull bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+# ...
+# запустим в нём наше приложение
+$ docker run --rm -it -v ./target:/app bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc java -jar app/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Запустилось, так и оставим. Поменяем в нашем файле контейнер: 
+
+*./build/Dockerfile:*
+
+```Dockerfile
+# ...
+
+RUN lein uberjar
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+WORKDIR /app
+
+# ...
+```
+
+*shell:*
+
+```shell
+# соберём контейнер
+$ docker build -t test-clj-app -f ./build/Dockerfile .
+[+] Building 11.7s (16/16) FINISHED                                                            docker:default
+# запустим его
+$ docker run --rm -it test-clj-app
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+```
+
+Отлично, всё работает.
+
+##### Make-команда сборки проекта
+
+Итак, нам нужно как-то определять коммит из которого мы собрали docker-образ. Эту проблему можно решить несколькими способами:
+
+1. в названии docker-образа указывать hash коммита
+1. добавить в метаданные docker-образа hash коммита
+1. добавить в docker-образ переменную окружения
+
+Рассмотрим их по порядку.
+
+Первый способ позволяет быстро, без лишний телодвижений узнать коммит из которого произведена сборка, но можно изменить тег у образа и тогда уже никак не узнать откуда он был собран. 
+Второй вариант лишён недостатка первого, точнее провернуть трюк с меткой сложнее чем с тегом, но [можно](https://github.com/dokku/docker-image-labeler). 
+А вот третий вариант, кажется, точно лишён этого недостатка, во всяком случае мне не удалось быстро нагуглить как поменять переменные окружения образа.
+
+Решил использовать комбинированный подход: воспрользуюсь вариантом 1 и 3. Первый чтобы человек не страдал, третий, больше для того чтобы потом в логах можно было это значение указывать и, потом, в какой-нибудь гарафане видеть что у нас за сборка логи отправляет.
+
+Итак, сначала удостоверимся что у нас нет модифицированных и неотслеживаемых файлов:
+
+> [!NOTE]
+> Если с модифицированными файлами понятно, то с неотслеживаемыми следует пояснить: мы можем написать код в новом файле и не поставить его под наблюдение git, в таком случае, если мы запустим сборку без проверки наличия таких файлов мы, снова, получим невоспроизводимую сборку, т.к. в git может уйти коммит без этого нового файла. Это добавляет проблем при сборке, т.к. мне теперь придётся все файлы что не нужны удалять перед ней или добавлять в `.gitignore`.
+
+*./build/build.sh:*
+
+```shell
+#!/bin/bash
+
+# Будем раскрашивать сообщения чтобы можно было не читая понять что происходит
+COLOR_FAIL='\033[0;31m' # Red
+COLOR_SUCCESS='\033[0;32m' # Green
+COLOR_NC='\033[0m' # No Color
+
+# смотрим чтобы не было модифицированных или не отслеживаемых файлов
+# для этого получим списпок файлов и посчитаем их кол-во
+git_files_count=$(git status -s | wc -l)
+if [ $git_files_count -ne 0 ]; then
+  echo -e "${COLOR_FAIL}FAIL:${COLOR_NC}"
+  echo "Проект имеет неотслеживаемые или модифицированные файлы в кол-ве ($git_files_count штук)"
+  exit 1
+fi
+
+# получим короткий хэш коммита
+hash=$(git rev-parse --short HEAD)
+
+# запустим сборку
+build_name="patient:$hash"
+docker build -t $build_name -f ./build/Dockerfile .
+
+if [ $? -ne 0 ]; then
+  echo -e "${COLOR_FAIL}FAIL:${COLOR_NC}"
+  echo "Сборка завершилась с ошибками, см. сообзения выше."
+  exit 1
+fi
+
+echo -e "${COLOR_SUCCESS}SUCCESS:${COLOR_NC} $build_name"
+exit 0
+```
+
+*Makefile:*
+
+```Makefile
+
+# ...
+
+docker-build: ## Build containers
+	docker compose build
+
+# ...
+
+build: ## Build prod app docker-image
+	bash ./build/build.sh
+```
+
+Ранее команда `build` отвечала за сборку docker-образа для разработки, я переименовал её в `docker-build` а это название теперь используется для сборки прода.
+
+Проверим:
+
+*shell:*
+
+```shell
+# посмотрим есть ли у меня что-то модифицированное или не отслеживаемое
+$ git status -s
+ M Makefile
+# запустим сборку
+$ make build
+bash ./build/build.sh
+FAIL:
+Проект имеет неотслеживаемые или модифицированные файлы в кол-ве (1 штук)
+make: *** [Makefile:31: build] Error 1
+# зафиксируем изменения в Makefile
+$ git add Makefile
+$ git commit -m "feat: add command for buil prod ready docker image"
+# запустим сборку ещё раз
+$ make build
+bash ./build/build.sh
+[+] Building 11.6s (16/16) FINISHED                                                            docker:default
+# ...
+SUCCESS: patient:1de6043
+# проверим что такой образ действительно существует
+$ docker image ls | grep patient
+patient                               1de6043                          408329cd984b   About a minute ago   308MB
+```
+
+Немного смущает размер образа в 308 МБ, но это уже как-нибудь потом.
+
+Теперь надо при сборке добавить в переменную окружения образа хэш коммита из которого он слеплен. Нужно просто добавить передачу аргумента при сборке:
+
+*./build/build.sh:*
+
+```shell
+# ...
+
+docker build --build-arg version=$hash -t $build_name -f ./build/Dockerfile .
+
+# ...
+```
+
+*./build/Dockerfile:*
+
+```Dockerfile
+# ...
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+ARG version
+ENV version=${version:-v0.0}
+
+# ...
+```
+
+Проверим:
+
+*shell:*
+
+```shell
+# соберём образ заново
+$ make build
+# ...
+SUCCESS: patient:1de6043
+# посмотрим что у него есть внутри
+$ docker image inspect patient:1de6043 | grep 1de6043
+            "patient:1de6043"
+                "version=1de6043"
+```
+
+##### Итог:
+
+Что мы сделали:
+
+- [x] автоматизированная сборка билда (через Makefile)
+- [x] есть где хранить билды
+- [x] билд знает из какого коммита он собран
+- [x] простейшая проверка на неповторяемые сборки (смотрим чтобы `git status` был пуст)
+
+Какие проблемы остались/добавились:
+
+- [ ] сборка билда не автоматическая
+- [ ] неповторяемые сборки из-за `/root/.m2` в котором не удаляются зависимости которых нет в `project.clj`
+- [ ] большой объём образа - 308 МБ
+- [ ] "лишних" файлов не должно быть при сборке проекта
+
+---
+
+- [Issue](https://github.com/4irik/log/issues/3) для комментариев
+- [Анонс](https://t.me/stdi0_h/36) в телеграм-канале
+- [Анонс](https://www.linkedin.com/posts/kirill-cherednichenko_clojure-functionalprogramming-webdev-activity-7254405331810725889-vWrU) в LinkedIn
+
+
+---
+
+<https://4irik.github.io/log/post/bash-testing.md> (2024-09-20)
+
+# Пишем библиотеку для тестирования shell-скриптов
+
+![Пример работы скрипта тестирования bash-скриптов](../assets/bash-testing/demo.gif)
+
+Создадим главный файл который будет запускать все тесты:
+
+```shell
+$ touch test.sh
+$ mkdir test
+$ touch test/test_assert_1.sh
+$ touch test/test_assert_2.sh
+```
+
+Так же создадим поддиректорию в которой разместим файлы с тестами. В итоге, структура директории будет такова:
+
+```shell
+$ tree ./
+./
+├── test
+│   ├── test_assert_1.sh
+│   └── test_assert_2.sh
+└── test.sh
+
+1 directory, 3 files
+```
+
+Файлы в которых будем писать тесты будут иметь префикс `test_` в названии и расширение `sh`. Это нужно для того чтобы не пытаться запустить всякие вспомогательные для тестов файлы.
+
+Первое что нам нужно - найти все файлы с тестами в дирректории и поддиректориях:
+
+```shell
+#!/usr/bin/env bash
+
+for i in $(find . -type f -name "test_*.sh");
+do
+    echo $i
+done
+```
+
+Проверим:
+
+```shell
+$ ./test.sh
+./test/test_assert_1.sh
+./test/test_assert_2.sh
+```
+
+Отлично, список файлов у с тестами у нас есть.
+
+Теперь попробуем запустить эти файлы:
+
+```shell
+for i in $(find . -type f -name "test_*.sh");
+do
+    scrip_dir=$(dirname $i)
+	script_file=$(basename $i)
+    (cd $scrip_dir && ./$script_file)
+done
+```
+
+Как видно, предварительно делаем переход в каталог расположения файла. Сделано это для того, чтобы все инклуды отсчитывать от файла с тестом а не от запускающего его файла.
+
+
+```shell
+$ ./test.sh
+./test.sh: 7: ./test_assert_1.sh: Permission denied
+./test.sh: 7: ./test_assert_2.sh: Permission denied
+```
+
+Нет прав... А ну-ка проверим:
+
+```shell
+$ ls -l test
+total 8
+-rw-r--r-- 1 gs gs 18 Sep 19 16:09 test_assert_1.sh
+-rw-r--r-- 1 gs gs 10 Sep 19 15:42 test_assert_2.sh
+```
+
+Ага, наши файлы не имеют флага запуска. Мы можем его им проставить, но тогда нам нужно будет на все файлы с тестами ставить этот флаг. Неудобно. Давайте, лучше, внутри нашего интерпретатора запустим ещё один и скажем ему исполнить эти файлы:
+
+```diff
+7c7
+<     (cd $scrip_dir && ./$script_file)
+---
+>     (cd $scrip_dir && bash ./$script_file)
+9d8
+< 
+```
+
+Предварительно напишем в эти файлы чего-нибудь:
+
+```shell
+$ echo "echo 111" > test/test_assert_1.sh
+$ echo "echo 222" > test/test_assert_2.sh
+```
+
+А теперь запустим:
+
+```shell
+$ ./test.sh
+111
+222
+```
+
+Теперь, хорошо бы указывать успешно у нас прошёл тест или нет. Код возврата последней операции можно получить через `$?`. Добавим проверку кода возврата и вывод уведомления об успешности теста:
+
+```diff
+7a8,13
+>     if [ $? -ne 0 ];
+>     then
+>         echo "$i: FAIL"
+>     else
+>         echo "$i: success"
+>     fi
+```
+
+А в один из файлов добавим код возврата неудачи:
+
+```shell
+$ echo "exit 1" >> test/test_assert_1.sh
+```
+
+Теперь запустим наш тест:
+
+```shell
+$ ./test.sh
+111
+./test/test_assert_1.sh: FAIL
+222
+./test/test_assert_2.sh: success
+```
+
+Как видим, у нас выполнились оба теста несмотря на то, что первый тест должен был бы прекратить выполнение скрипта вызовом `exit 1` но это не произошло потому что его мы запустили в отдельном интерпретаторе (`bash ./$script_file`).
+
+Что ж, теперь бы хотелось сделать так чтобы выводы тестов были ниже списка результатов запуска чтобы не мешать всё в одну кучу:
+
+```diff
+2a3,6
+> SUCCESS_COUNTER=0
+> FAIL_COUNTER=0
+> TEST_FILE_COUNTER=0
+>
+5a10,11
+>     TEST_FILE_COUNTER=$(( TEST_FILE_COUNTER + 1 ))
+>
+14c20,21
+<         echo "$i: FAIL"
+---
+>         FAIL_COUNTER=$(( FAIL_COUNTER + 1 ))
+>         echo -e "$i: FAIL"
+16c23,24
+<         echo "$i: success"
+---
+>         SUCCESS_COUNTER=$(( SUCCESS_COUNTER + 1 ))
+>         echo -e "$i: success"
+25a34,38
+>
+> echo "RESULT:"
+> echo "total: $TEST_FILE_COUNTER"
+> echo "successfully: $SUCCESS_COUNTER"
+> echo "failure: $FAIL_COUNTER"
+```
+
+Посмотрим результат:
+
+```shell
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: success
+
+ERRORS:
+./test/test_assert_1.sh:
+1111
+
+RESULT:
+total: 2
+successfully: 1
+failure: 1
+```
+
+Отлично!
+
+Осталось только добавить фильтр позволяющий запускать только определённые файлы
+чтобы, при необходимости, не гнать все тесты:
+
+```diff
+2a3,4
+> TEST_FILE_FILTER=$@
+>
+9a12,25
+>       if [ "$TEST_FILE_FILTER" != "" ]; then
+>               IS_ACCEPT=0
+>               for filter in $TEST_FILE_FILTER; do
+>                       if [[ "$i" =~ $filter ]]; then
+>                               IS_ACCEPT=1
+>                               break
+>                       fi
+>               done
+>
+>               if [ "$IS_ACCEPT" -eq 0 ]; then
+>                       continue
+>               fi
+>       fi
+>
+```
+
+Запускаем:
+
+```shell
+$ ./test.sh assert_[2-9]
+./test/test_assert_2.sh: success
+
+ERRORS:
+RESULT:
+total tests run: 1
+successfully: 1
+failure: 0
+```
+
+Как видно, мы можем писать тут регулярные выражения. Есть только одна проблема:
+
+```shell
+$ ./test.sh some_string
+
+ERRORS:
+RESULT:
+total tests run: 0
+successfully: 0
+failure: 0
+```
+
+У нас показывается строка `ERRORS:`, чего быть не должно. Добавим проверку списка ошибок:
+
+```diff
+44,47c44
+< echo
+< echo "ERRORS:"
+< for i in "${!FAIL_OUTPUT[@]}"; do
+<       echo -e "${i}:\n${FAIL_OUTPUT[$i]}"
+---
+> if [ ${#FAIL_OUTPUT[@]} -gt 0 ]; then
+49c46,51
+< done
+---
+>       echo "ERRORS:"
+>       for i in "${!FAIL_OUTPUT[@]}"; do
+>               echo -e "${i}:\n${FAIL_OUTPUT[$i]}"
+>               echo
+>       done
+> fi
+```
+
+Теперь всё хорошо:
+
+```shell
+$ ./test.sh some_string
+RESULT:
+total tests run: 0
+successfully: 0
+failure: 0
+```
+
+Что ж, теперь, я думаю, можно навести немного лоска. Добавим цвета в вывод:
+
+```diff
+4a5,8
+> COLOR_FAIL='\033[0;31m' # Red
+> COLOR_SUCCESS='\033[0;32m' # Green
+> COLOR_NC='\033[0m' # No Color
+>
+37c41
+<         echo -e "$i: FAIL"
+---
+>         echo -e "$i: ${COLOR_FAIL}FAIL${COLOR_NC}"
+40c44
+<         echo -e "$i: success"
+---
+>         echo -e "$i: ${COLOR_SUCCESS}success${COLOR_NC}"
+```
+
+![Удачно завершённые тесты имеют зелёный цвет, неудачно завершённые красный](../assets/bash-testing/color-output-example.png "У общества без цветовой дифференциации тестов нет цели")
+
+## Вспомогательные функции
+
+Почти всё готово! Остался только один момент - каждый раз сравнивать значения и если они не соответсвуют ожиданиям писать сообщение и делать выход немного утомительно. Т.е. у нас во всех тестах будет такая конструкция:
+
+```shell
+...
+if [ ... ]; then
+    echo "some error message"
+    exit 1
+fi
+...
+```
+
+Добавим вспомогательную функцию `assert` которая будет испонять этот шаблонный код.
+
+```shell
+assert() {
+    message=${3:-""}
+
+    local diff_value
+    set -o pipefail
+    diff_value=$(diff  <(echo "$1" ) <(echo "$2") | sed -z 's/\n/\\n/g')
+
+    if [ $? -ne 0 ];
+    then
+        echo -e "$message:\n$diff_value"
+        exit 1
+    fi
+}
+```
+
+Она принимате три параметра: первые два - сравниваемые значения, третий - сообщение об ошибке, он не обязателен.
+
+Вызывается так:
+
+```shell
+assert 10 $a "Кол-во чего-то там должно быть 10"
+```
+
+Стоит пояснить эти две строки:
+
+```shell
+set -o pipefail
+diff_value=$(diff  <(echo "$1" ) <(echo "$2") | sed -z 's/\n/\\n/g')
+```
+
+`set -o pipefail` делает так, что мы получаем последний ненулевой код завершения в конвеере, иначе, если команда `diff` вернёт `1` следующая за ней команда `sed` вернёт `0` и мы никогда не узнаем что значения у нас отличаются: условие `if [ $? -ne 0 ];` никогда не сработает.
+
+Ок, функция у нас есть. Но куда её поместить? Если поместить её в файл `test.sh` то она будет не доступна в скриптах с тестами потому как они запускаются в отдельном интерпретаторе. Остаётся только поместить её в отдельный файл. Так и поступим:
+
+```shell
+$ touch utils.sh
+```
+
+Теперь структура директорий следующая:
+
+```shell
+$ tree ./
+./
+├── test
+│   ├── test_assert_1.sh
+│   └── test_assert_2.sh
+├── test.sh
+└── utils.sh
+1 directory, 4 files
+```
+
+Но, совершенно нет никакого желания в каждый тестовый файл подключать наш файл с утилитами. Тогда подгрузим его в shell который исполняет тест!
+
+```diff
+4a5,6
+> CURR_DIR=$(pwd)
+> 
+34c36
+<     out=$(cd $scrip_dir && bash ./$script_file)
+---
+>     out=$(cd $scrip_dir && bash --noprofile --norc -c "source $CURR_DIR/utils.sh; source ./$script_file")
+```
+
+Перепишем наши тесты так чтобы они использовали эту утилиту.
+
+```shell
+$ echo "assert 1 2 \"1 не равно 2\"" > test/test_assert_1.sh
+$ echo "assert 2 2 \"2 не равно 2\"" > test/test_assert_2.sh
+```
+
+Запускаем:
+
+```shell
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: success
+
+ERRORS:
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+< 1
+---
+> 2
+
+RESULT:
+total tests run: 2
+successfully: 1
+failure: 1
+```
+
+Добавим в каждый из тестов ещё по вызову `assert` и посмотрим что будет.
+
+```shell
+$ echo "assert 3 3 \"3 не равно 3\"" >> test/test_assert_1.sh
+$ echo "assert 3 4 \"3 не равно 4\"" >> test/test_assert_2.sh
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+./test/test_assert_2.sh:
+3 не равно 4:
+1c1
+< 3
+---
+> 4
+
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+< 1
+---
+> 2
+
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2
+```
+
+Тут мы видим две вещи:
+
+1. Если сравнение в `assert` не было пройдено то тест на этом завершается, иначе его выполнение продолжится
+1. Сообщения об ошибках выводятся в обратном порядке
+
+Если первый пункт нас полностью устраивает то со вторым надо что-то делать.
+
+```diff
+56c56
+<       done
+---
+>       done | tac
+```
+
+```shell
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+
+> 2
+---
+< 1
+1c1
+1 не равно 2:
+./test/test_assert_1.sh:
+
+> 4
+---
+< 3
+1c1
+3 не равно 4:
+./test/test_assert_2.sh:
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2
+```
+
+Ну, почти то что и требовалось, нужно только немного доработать напильником. 
+
+Проблема в том, что у `tac` смотрит на символ перехода на новую строку, значит нужно сначала все символы заменить на какой-то другой символ, чтобы для каждого сообщения об ошибке было только одна строка, а затем всё вернуть как было:
+
+```diff
+54c54
+<               echo -e "${i}:\n${FAIL_OUTPUT[$i]}"
+---
+>               echo -e "${i}:\n${FAIL_OUTPUT[$i]}" | sed -z 's/\n/\\n/g' 
+56c56
+<       done | tac
+---
+>       done | tac | sed 's/\\n/\n/g'
+```
+
+Ну, такое себе, но пока что пойдёт. Проверим:
+
+```shell
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+< 1
+---
+> 2
+
+./test/test_assert_2.sh:
+3 не равно 4:
+1c1
+< 3
+---
+> 4
+
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2
+```
+
+Что ж, кажется, на этом, пока что, можно остановится.
+
+## Резюме
+
+Итак. Сейчас мы имеет минимальную среду для тестирования скриптов на bash, котора может:
+
+- запускать как все скрипты так и соответствующие шаблону
+- отмечает упавшие и прошедшие успешно тесты
+- показывает статистику по тестам
+- показывает ошибки в тестах
+
+Полный код можно посмотреть в этом [репозитории](https://github.com/4irik/bashunit).
+
+### TODO
+
+Следовало бы добавить:
+
+- показ номера строки в тестовом файле на которой произошла ошибка
+- флаг `--dry-run`
+- флаг `--fast-fail`
+- функции определяющие неравенство (`greaterThen`, `lessThen`, ..)
+
+В порядке бреда (а почему бы и не "да"?):
+
+- [dataProvider](https://docs.phpunit.de/en/11.3/writing-tests-for-phpunit.html#data-providers) (?!)
+- моки/стабы (?!)
+- setup/teardown для файла/для всего тестового набора
+- параллельное выполнение тестов (?!)
+
+---
+
+- [Issue](https://github.com/4irik/log/issues/2) для комментариев.
+- [Анонс](https://t.me/stdi0_h/31) в телеграм-канале.
+
+
+---
+
+<https://4irik.github.io/log/post/terminal-screencasting.md> (2024-09-03)
+
+# Создание идеального скринкаста работы с терминалом
+
+Недавно выложил свою реализацию [lisp-интерпретатора](<https://github.com/4irik/lisphp>) 
+написанного на PHP. И, чтобы можно было хотя
+бы как-то посмотреть его работу ничего не запуская, решил прикрепить в readme
+скринкаст работы в REPL.
+
+Сразу покажу результат:
+
+[![asciicast](https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK.svg)](<https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK>)
+
+В принципе, в win11, уже всё для этого есть, но вводить текст без запинок
+опечаток и с постоянной скоростью оказалось не очень-то и просто. "Нужно отдать
+это дело на откуп программе!" - первая мысль посетившая меня после нескольких
+ неудачных попыток.
+
+Я использую WSL c Ubuntu для разработки и, уж чего-чего, а в линуксе 100% есть
+или уже готовая программа или её можно собрать на коленке из bash-скриптов и
+~~палок~~ того что найдём в `/usr/bin`.
+
+Итак, мне нужно эмулировать ввод текста с клавиатуры. Недолгий поиск привёл меня
+к `xdotool`. Есть только одна проблема:
+
+```shell
+xdotool --type "hello"
+```
+
+ничего не выводит, а если спросить
+
+```shell
+echo $? # 0
+```
+
+т.е. всё хорошо.
+
+Выяснилось, что буква "x" в её названии не просто так, утилита работает только с
+x11-приложениями. Stack Overflow подсказал её решение:
+
+```shell
+sudo apt install xterm
+```
+
+Благо WSL2 позволяет без проблем работать с GUI-приложениями линукса.  Все
+дальнейшие эксперименты с `xdotool`, и сам скринкаст, я проводил в `xterm`.
+
+Одна проблема решена, теперь надо как-то сделать так чтобы на экране появлялось
+много строк. `xdotool` позволяет написать для неё последовательность команд и
+передать её на вход файлом или из stdin.
+
+```shell
+cat scenario.txt | xdotool -
+xdotool scenario.txt
+```
+
+Мне больше импонирует первый вариант, потому, что так можно будет генерировать
+сценарий "на лету".
+
+Итак, вручную я вводил в терминал что-то вроде этого:
+
+```shell
+$ make repl
+?> ; First, let's see some help information.
+?> :help
+?> ; Let's write some code.
+?> (defn sum (n a)
+?> ..(cond (= n 0)
+# …
+?> ; Let's exit the REPL
+?> :q
+```
+
+Видно, что нужно сделать две вещи:
+
+- запустить REPL
+- вводить в него различные строки
+
+Для запуска программ в xdotool предлагают использовать такой синтаксис:
+
+```text
+exec program_name arg_1 
+```
+
+Запуск программы занимает какое-то время, нужно подождать пока она запустится и
+продолжить ввод, иначе `xdotool` продолжит ввод не дожидаясь её готовности к
+работе:
+
+```text
+sleep 1
+```
+
+Это заставит утилиту подождать 1 секунду.
+
+Для ввода строк нам нужна такая команда:
+
+```text
+type "some string"
+```
+
+Ещё нам нужен перевод на новую строку:
+
+```text
+key Return
+```
+
+Таким образом, чтобы ввести команду в REPL нужно два вызова:
+
+```text
+type "some string"
+key Return
+```
+
+Также нужно учесть, что, по-умолчанию, задержка ввода символов 12 мс. Это очень
+мало, нужно чтобы было похоже на ввод человеком:
+
+```text
+type --delay 200 "some string"
+```
+
+Ещё нужно дать время зрителю прочитать строку целиком:
+
+```text
+key --delay 1000 Return
+```
+
+Итого получим:
+
+```text
+type --delay 200 "some string"
+key --delay 1000 Return
+```
+
+Отлично, теперь можно представить как будет выглядеть сценарий:
+
+```text
+exec make repl
+sleep 1
+type --delay 200 "; First, let's see some help info"
+key --delay 1000 Return
+type --delay 200 ":help"
+key --delay 1000 Return
+type --delay 200 "; Let's write some code."
+key --delay 1000 Return
+type --delay 200 "(defn sum (n a)"
+key --delay 1000 Return
+type --delay 200 "(cond (= n 0)"
+key --delay 1000 Return
+…
+```
+
+Писать это всё вручную нет никакого желания, проще написать текст который нужно
+вводить, а сценарий сгенерировать программой. Т.е. исходный сценарий будет
+выглядеть как-то так:
+
+```text
+exec make repl
+sleep 1
+; First, let's see some help info
+:help
+; Let's write some code.
+(defn sum (n a)
+(cond (= n 0)
+…
+```
+
+Как видите, за исключением первых двух строк, заготовка ничем не отличается от
+того что я бы вводил руками.
+
+Осталось написать генератор сценария для `xdotool` на основе текста:
+
+```bash
+#!/bin/bash
+
+FILE=$1
+SPEED=${2:-100}
+DELAY=${3:-1000}
+
+while IFS= read -r line; do
+    if [[ $line == exec* ]] || [[ $line == sleep* ]]
+    then
+        echo $line
+    else
+        echo "type --delay $SPEED \"$line\""
+        echo "key --delay $DELAY Return"
+    fi
+done < $FILE
+```
+
+*Сам скрипт я закинул в [gist](<https://gist.github.com/4irik/522ded4ac9b3a1f805087cd1ca9722ee>).
+Предложения по улушению принимаются!*
+
+Помимо имени файла, я добавил два опциональных параметра:
+
+1. скорость ввода символов
+1. задержка перед нажатием `Enter`
+
+Смотрим результат:
+
+```shell
+$ ./gen.sh scenario.txt
+exec make repl
+sleep 1
+type --delay 100 "; First, let's see some help information."
+key --delay 1000 Return
+type --delay 100 ":help"
+key --delay 1000 Return
+...
+```
+
+На первый взгляд всё хорошо. Попробуем запустить:
+
+```shell
+$ ./gen.sh scenario.txt | xdotool -
+; docker compose run --rm --user “1000:1000” app ./repl
+ First, let's see some help infothe input device is not TTY
+make: *** [Makefile:20: repl] Error 1
+rmation.
+:help
+...
+```
+
+Хм, не сработало, чего-то не так с TTY у докера (как видно из вывода, команда
+`make repl` запускает докер). Попробуем по-другому:
+
+```shell
+$ ./gen.sh scenario.txt > scen.txt && xdotool scen.txt
+docker compose run --rm --user "1000:1000" app ./repl
+
+=====================================================
+Наберите :help для просмотра списка доступных команд
+=====================================================
+
+?>; First, let's see some help information.
+?>:help
+...
+```
+
+Отлично! Правда мне не нравится необходимость создавать промежуточный файл, но
+работа выполняется, жить можно.
+
+Осталось решить несколько проблем, с которыми, впрочем, можно жить:
+
+1. `xdotool` не позволяет написать в консоль `make repl` и продолжить ввод уже
+в его окно приглашения, нужно именно запустить его, т.е. вызвать
+`exec make repl`. Из-за этого первую строчку в скринкасте мне пришлось
+смонтировать (и это большой плюс asciinema! Если бы я писал видео, то не знаю
+сколько бы сил этот монтаж у меня отнял.)
+1. Если поставить задержку перед вводом `Enter` более 1 секунды , то  `xdotool`
+будет "нажимать" его несколько раз
+1. Хотелось бы разобраться почему не работает `cat scenario.txt | xdotool -`,
+быстрый поиск по проблеме мне не помог
+
+Если Вы знаете как обойти какую-либо из этих проблем или как-то, по-своему, решаете проблему идеального ввода текста для скринкаста, ну или просто Вам есть что сказать, приглашаю в [комментарии](https://github.com/4irik/log/issues/1)! Так же у меня есть в [телеграм-канал](https://t.me/stdi0_h/29).

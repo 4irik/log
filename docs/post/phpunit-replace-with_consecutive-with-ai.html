@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Замена удалённого в PHPUnit 10 метода `withConsecutive` с
+помощью ChatGPT</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h3
+id="замена-удалённого-в-phpunit-10-метода-withconsecutive-с-помощью-chatgpt">Замена
+удалённого в PHPUnit 10 метода <code>withConsecutive</code> с помощью
+ChatGPT</h3>
+<p class="date">2025-09-11</p>
+
+<p>С переходом на PHPUnit 10 я столкнулся с тем, что метод
+<code>withConsecutive</code> удалён. Мне понадобилась замена, которая
+была бы так же лаконична в использовании, как и старый метод.</p>
+<p>Сначала я поискал готовое решение и нашёл отличную статью Томаша
+Вотрубы — <a
+href="https://tomasvotruba.com/blog/how-to-upgrade-deprecated-phpunit-with-consecutive">How
+to Upgrade Deprecated PHPUnit withConsecutive</a>. Суть в том, чтобы
+заменить поведение на <code>willReturnCallback</code>. Решение рабочее,
+но мне показалось слишком многословным для частых кейсов.</p>
+<p>Тут я вспомнил <a
+href="https://www.linkedin.com/posts/mokevnin_free-online-programming-courses-html-css-activity-7318703967935352833-FiWp">заметку</a>
+Кирилла Мокевнина про «малую автоматизацию» с LLM — когда мы поручаем
+модели генерировать небольшие куски кода нацелленные на решение одной
+единственной небольшой проблемы. Я обратился к ChatGPT с просьбой помочь
+оформить идею из статьи в удобный для повседневной работы трейт-обёртку.
+За пару итераций мы собрали аккуратный результат — см. гист: <a
+href="https://gist.github.com/4irik/674a71d4d87e5e45e73365b4a127b1e6">gist.github.com/4irik/674a71d4d87e5e45e73365b4a127b1e6</a>.</p>
+<h3 id="идея-обёртки">Идея обёртки</h3>
+<p>Я вынес логику последовательных ожиданий и возвратов в трейт с двумя
+методами:</p>
+<ul>
+<li><code>expectCallSequence(MockObject $mock, string $methodName, array $calls): void</code>
+— строгая последовательность вызовов: каждый вызов проверяется по
+аргументам и возвращает подготовленное значение.</li>
+<li><code>expectPartialCallSequence(MockObject $mock, string $methodName, array $callsByIndex, ?callable $defaultCallback = null): void</code>
+— выборочная проверка вызовов по индексам, остальные обслуживает
+дефолтный коллбэк (возвращает <code>null</code> или то, что вы
+укажете).</li>
+</ul>
+<p>Минимальный пример использования для полной последовательности:</p>
+<pre class="php"><code>$testableClass = $this-&gt;createMock(TestableClass::class);
+$this-&gt;expectCallSequence($testableClass, &#39;doSomethingWithDefault&#39;, [
+    [[1, &#39;3&#39;], &#39;1 3&#39;],
+    [[3], &#39;3 2&#39;],
+]);</code></pre>
+<p>И пример для частичной последовательности с заполнителем по
+умолчанию:</p>
+<pre class="php"><code>$testableClass = $this-&gt;createMock(TestableClass::class);
+$this-&gt;expectPartialCallSequence($testableClass, &#39;doSomethingWithDefault&#39;, [
+    0 =&gt; [[1, &#39;3&#39;], &#39;1 3&#39;],
+    2 =&gt; [[3], &#39;3 2&#39;],
+]);</code></pre>
+<p>Для сравнения — как то же самое выглядит без трейта.</p>
+<p>— PHPUnit 9 с <code>withConsecutive</code> и
+<code>willReturnOnConsecutiveCalls</code>:</p>
+<pre class="php"><code>$testableClass = $this-&gt;createMock(TestableClass::class);
+$testableClass-&gt;expects($this-&gt;exactly(2))
+    -&gt;method(&#39;doSomethingWithDefault&#39;)
+    -&gt;withConsecutive(
+        [1, &#39;3&#39;],
+        [3],
+    )
+    -&gt;willReturnOnConsecutiveCalls(&#39;1 3&#39;, &#39;3 2&#39;);</code></pre>
+<p>— PHPUnit 10 через «голый» <code>willReturnCallback</code> (полная
+последовательность):</p>
+<pre class="php"><code>$testableClass = $this-&gt;createMock(TestableClass::class);
+$testableClass-&gt;expects($invokedCount = $this-&gt;exactly(2))
+    -&gt;method(&#39;doSomethingWithDefault&#39;)
+    -&gt;willReturnCallback(function (...$parameters) use ($invokedCount) {
+        if ($invokedCount-&gt;numberOfInvocations() === 1) {
+            $this-&gt;assertSame([1, &#39;3&#39;], $parameters);
+            return &#39;1 3&#39;;
+        }
+        if ($invokedCount-&gt;numberOfInvocations() === 2) {
+            $this-&gt;assertSame([3, &#39;2&#39;], $parameters);
+            return &#39;3 2&#39;;
+        }
+    });</code></pre>
+<p>— PHPUnit 10: частичная последовательность без трейта (с дефолтным
+значением):</p>
+<pre class="php"><code>$testableClass = $this-&gt;createMock(TestableClass::class);
+$testableClass-&gt;expects($invokedCount = $this-&gt;any())
+    -&gt;method(&#39;doSomethingWithDefault&#39;)
+    -&gt;willReturnCallback(function (...$parameters) use ($invokedCount) {
+        if ($invokedCount-&gt;numberOfInvocations() === 1) {
+            $this-&gt;assertSame([1, &#39;3&#39;], $parameters);
+            return &#39;1 3&#39;;
+        }
+        if ($invokedCount-&gt;numberOfInvocations() === 3) {
+            $this-&gt;assertSame([3, &#39;2&#39;], $parameters);
+            return &#39;3 2&#39;;
+        }
+        return &#39;&#39;;
+    });</code></pre>
+<h3 id="примеры-тестов">Примеры тестов</h3>
+<p>Полные примеры лежат в каталоге <a
+href="../assets/phpunit-replace-with_consecutive-with-ai/code_example"><code>assets/phpunit-replace-with_consecutive-with-ai/code_example</code></a>
+этого репозитория:</p>
+<ul>
+<li><code>TestPhpunit9.php</code> — реализация на PHPUnit 9 со старыми
+<code>withConsecutive</code> и
+<code>willReturnOnConsecutiveCalls</code>.</li>
+<li><code>TestPhpunit10.php</code> — реализация на PHPUnit 10 c
+трейтом-обёрткой, заменяющим эти методы и немного расширяющим их
+возможности.</li>
+<li><code>TestPhpunit10Native.php</code> — реализация на PHPUnit 10 с
+«голым» <code>willReturnCallback</code> без обёртки.</li>
+</ul>
+<p>Если посмотреть на метод <code>testDoSomethingConsecutive</code> во
+всех трёх файлах, видно, что в варианте с чистым
+<code>willReturnCallback</code> код самый многословный. Вариант с
+PHPUnit 9 и вариант с трейтом имеют сопоставимую лаконичность.</p>
+<p>Также обратите внимание на
+<code>testDoSomethingInvokingGreaterThanOnceFail</code>: при запуске
+сообщение об ошибке одинаково во всех трёх случаях, что подтверждает
+эквивалентность поведения. И, наконец, «бонус» —
+<code>testDoSomethingConsecutivePartial</code>: в варианте с трейтом он
+заметно короче, чем на PHPUnit 9 и на «голом» PHPUnit 10.</p>
+<h3 id="итог">Итог</h3>
+<p>Эра LLM позволяет делать многие вещи заметно быстрее, чем это делал
+бы человек вручную. В данном случае модель помогла за минуты превратить
+многословный <code>willReturnCallback</code> в компактную и
+переиспользуемую обёртку, сохранив гибкость нового API и удобство старых
+подходов. Такой «малой автоматизацией» имеет смысл пользоваться всякий
+раз, когда повторяется однотипная рутина — ускорение и качество быстро
+окупают вложение.</p>
+</body>
+</html>

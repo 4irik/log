@@ -1,0 +1,73 @@
+/* Article text styled after https://samat.me */
+
+body {
+	max-width: 700px;
+	margin: 0 auto;
+	padding: 0 1em;
+	font-family: Georgia, serif;
+	font-size: 1.2rem;
+	line-height: 1.5;
+	color: #333333;
+}
+
+pre {
+	background-color: #ffffcc;
+	overflow-x: auto;
+	padding: 0.8em;
+	font-size: 0.9em;
+	box-shadow: 0 -1px 0 #bbbbbb inset;
+}
+
+pre code {
+	font-size: 0.9em;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Lucida Console", monospace;
+}
+
+:not(pre) > code {
+	padding: 0.2em;
+	background-color: #ffcccc;
+	font-size: 0.9em;
+}
+
+.date {
+	margin: 0;
+	color: #909090;
+	font-size: 0.8em;
+	font-family: sans-serif;
+}
+
+img {
+	max-width: 100%;
+	width: 100%;
+	height: auto;
+	box-shadow: 0 3px 3px #bbbbbb;
+}
+
+li + li {
+	padding-top: 0.25em;
+}
+
+ul, ol {
+	padding-left: 1em;
+}
+
+blockquote {
+	margin: 1em;
+	border-left: solid 0.1em #cecece;
+	padding: 0.5em 2em;
+	background-color: #efefef;
+	box-shadow: 0 -1px 0 #bbbbbb inset;
+}
+
+table {
+	width: 100%;
+	border-bottom: solid 1px #cecece;
+	border-collapse: collapse;
+}
+
+table thead {
+	background-color: #cecece;
+}

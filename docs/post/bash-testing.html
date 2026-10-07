@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Пишем библиотеку для тестирования shell-скриптов</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="пишем-библиотеку-для-тестирования-shell-скриптов">Пишем
+библиотеку для тестирования shell-скриптов</h1>
+<p class="date">2024-09-20</p>
+
+<p><img src="../assets/bash-testing/demo.gif"
+alt="Пример работы скрипта тестирования bash-скриптов" /></p>
+<p>Создадим главный файл который будет запускать все тесты:</p>
+<pre class="shell"><code>$ touch test.sh
+$ mkdir test
+$ touch test/test_assert_1.sh
+$ touch test/test_assert_2.sh</code></pre>
+<p>Так же создадим поддиректорию в которой разместим файлы с тестами. В
+итоге, структура директории будет такова:</p>
+<pre class="shell"><code>$ tree ./
+./
+├── test
+│   ├── test_assert_1.sh
+│   └── test_assert_2.sh
+└── test.sh
+
+1 directory, 3 files</code></pre>
+<p>Файлы в которых будем писать тесты будут иметь префикс
+<code>test_</code> в названии и расширение <code>sh</code>. Это нужно
+для того чтобы не пытаться запустить всякие вспомогательные для тестов
+файлы.</p>
+<p>Первое что нам нужно - найти все файлы с тестами в дирректории и
+поддиректориях:</p>
+<pre class="shell"><code>#!/usr/bin/env bash
+
+for i in $(find . -type f -name &quot;test_*.sh&quot;);
+do
+    echo $i
+done</code></pre>
+<p>Проверим:</p>
+<pre class="shell"><code>$ ./test.sh
+./test/test_assert_1.sh
+./test/test_assert_2.sh</code></pre>
+<p>Отлично, список файлов у с тестами у нас есть.</p>
+<p>Теперь попробуем запустить эти файлы:</p>
+<pre class="shell"><code>for i in $(find . -type f -name &quot;test_*.sh&quot;);
+do
+    scrip_dir=$(dirname $i)
+    script_file=$(basename $i)
+    (cd $scrip_dir &amp;&amp; ./$script_file)
+done</code></pre>
+<p>Как видно, предварительно делаем переход в каталог расположения
+файла. Сделано это для того, чтобы все инклуды отсчитывать от файла с
+тестом а не от запускающего его файла.</p>
+<pre class="shell"><code>$ ./test.sh
+./test.sh: 7: ./test_assert_1.sh: Permission denied
+./test.sh: 7: ./test_assert_2.sh: Permission denied</code></pre>
+<p>Нет прав... А ну-ка проверим:</p>
+<pre class="shell"><code>$ ls -l test
+total 8
+-rw-r--r-- 1 gs gs 18 Sep 19 16:09 test_assert_1.sh
+-rw-r--r-- 1 gs gs 10 Sep 19 15:42 test_assert_2.sh</code></pre>
+<p>Ага, наши файлы не имеют флага запуска. Мы можем его им проставить,
+но тогда нам нужно будет на все файлы с тестами ставить этот флаг.
+Неудобно. Давайте, лучше, внутри нашего интерпретатора запустим ещё один
+и скажем ему исполнить эти файлы:</p>
+<pre class="diff"><code>7c7
+&lt;     (cd $scrip_dir &amp;&amp; ./$script_file)
+---
+&gt;     (cd $scrip_dir &amp;&amp; bash ./$script_file)
+9d8
+&lt; </code></pre>
+<p>Предварительно напишем в эти файлы чего-нибудь:</p>
+<pre class="shell"><code>$ echo &quot;echo 111&quot; &gt; test/test_assert_1.sh
+$ echo &quot;echo 222&quot; &gt; test/test_assert_2.sh</code></pre>
+<p>А теперь запустим:</p>
+<pre class="shell"><code>$ ./test.sh
+111
+222</code></pre>
+<p>Теперь, хорошо бы указывать успешно у нас прошёл тест или нет. Код
+возврата последней операции можно получить через <code>$?</code>.
+Добавим проверку кода возврата и вывод уведомления об успешности
+теста:</p>
+<pre class="diff"><code>7a8,13
+&gt;     if [ $? -ne 0 ];
+&gt;     then
+&gt;         echo &quot;$i: FAIL&quot;
+&gt;     else
+&gt;         echo &quot;$i: success&quot;
+&gt;     fi</code></pre>
+<p>А в один из файлов добавим код возврата неудачи:</p>
+<pre class="shell"><code>$ echo &quot;exit 1&quot; &gt;&gt; test/test_assert_1.sh</code></pre>
+<p>Теперь запустим наш тест:</p>
+<pre class="shell"><code>$ ./test.sh
+111
+./test/test_assert_1.sh: FAIL
+222
+./test/test_assert_2.sh: success</code></pre>
+<p>Как видим, у нас выполнились оба теста несмотря на то, что первый
+тест должен был бы прекратить выполнение скрипта вызовом
+<code>exit 1</code> но это не произошло потому что его мы запустили в
+отдельном интерпретаторе (<code>bash ./$script_file</code>).</p>
+<p>Что ж, теперь бы хотелось сделать так чтобы выводы тестов были ниже
+списка результатов запуска чтобы не мешать всё в одну кучу:</p>
+<pre class="diff"><code>2a3,6
+&gt; SUCCESS_COUNTER=0
+&gt; FAIL_COUNTER=0
+&gt; TEST_FILE_COUNTER=0
+&gt;
+5a10,11
+&gt;     TEST_FILE_COUNTER=$(( TEST_FILE_COUNTER + 1 ))
+&gt;
+14c20,21
+&lt;         echo &quot;$i: FAIL&quot;
+---
+&gt;         FAIL_COUNTER=$(( FAIL_COUNTER + 1 ))
+&gt;         echo -e &quot;$i: FAIL&quot;
+16c23,24
+&lt;         echo &quot;$i: success&quot;
+---
+&gt;         SUCCESS_COUNTER=$(( SUCCESS_COUNTER + 1 ))
+&gt;         echo -e &quot;$i: success&quot;
+25a34,38
+&gt;
+&gt; echo &quot;RESULT:&quot;
+&gt; echo &quot;total: $TEST_FILE_COUNTER&quot;
+&gt; echo &quot;successfully: $SUCCESS_COUNTER&quot;
+&gt; echo &quot;failure: $FAIL_COUNTER&quot;</code></pre>
+<p>Посмотрим результат:</p>
+<pre class="shell"><code>$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: success
+
+ERRORS:
+./test/test_assert_1.sh:
+1111
+
+RESULT:
+total: 2
+successfully: 1
+failure: 1</code></pre>
+<p>Отлично!</p>
+<p>Осталось только добавить фильтр позволяющий запускать только
+определённые файлы чтобы, при необходимости, не гнать все тесты:</p>
+<pre class="diff"><code>2a3,4
+&gt; TEST_FILE_FILTER=$@
+&gt;
+9a12,25
+&gt;       if [ &quot;$TEST_FILE_FILTER&quot; != &quot;&quot; ]; then
+&gt;               IS_ACCEPT=0
+&gt;               for filter in $TEST_FILE_FILTER; do
+&gt;                       if [[ &quot;$i&quot; =~ $filter ]]; then
+&gt;                               IS_ACCEPT=1
+&gt;                               break
+&gt;                       fi
+&gt;               done
+&gt;
+&gt;               if [ &quot;$IS_ACCEPT&quot; -eq 0 ]; then
+&gt;                       continue
+&gt;               fi
+&gt;       fi
+&gt;</code></pre>
+<p>Запускаем:</p>
+<pre class="shell"><code>$ ./test.sh assert_[2-9]
+./test/test_assert_2.sh: success
+
+ERRORS:
+RESULT:
+total tests run: 1
+successfully: 1
+failure: 0</code></pre>
+<p>Как видно, мы можем писать тут регулярные выражения. Есть только одна
+проблема:</p>
+<pre class="shell"><code>$ ./test.sh some_string
+
+ERRORS:
+RESULT:
+total tests run: 0
+successfully: 0
+failure: 0</code></pre>
+<p>У нас показывается строка <code>ERRORS:</code>, чего быть не должно.
+Добавим проверку списка ошибок:</p>
+<pre class="diff"><code>44,47c44
+&lt; echo
+&lt; echo &quot;ERRORS:&quot;
+&lt; for i in &quot;${!FAIL_OUTPUT[@]}&quot;; do
+&lt;       echo -e &quot;${i}:\n${FAIL_OUTPUT[$i]}&quot;
+---
+&gt; if [ ${#FAIL_OUTPUT[@]} -gt 0 ]; then
+49c46,51
+&lt; done
+---
+&gt;       echo &quot;ERRORS:&quot;
+&gt;       for i in &quot;${!FAIL_OUTPUT[@]}&quot;; do
+&gt;               echo -e &quot;${i}:\n${FAIL_OUTPUT[$i]}&quot;
+&gt;               echo
+&gt;       done
+&gt; fi</code></pre>
+<p>Теперь всё хорошо:</p>
+<pre class="shell"><code>$ ./test.sh some_string
+RESULT:
+total tests run: 0
+successfully: 0
+failure: 0</code></pre>
+<p>Что ж, теперь, я думаю, можно навести немного лоска. Добавим цвета в
+вывод:</p>
+<pre class="diff"><code>4a5,8
+&gt; COLOR_FAIL=&#39;\033[0;31m&#39; # Red
+&gt; COLOR_SUCCESS=&#39;\033[0;32m&#39; # Green
+&gt; COLOR_NC=&#39;\033[0m&#39; # No Color
+&gt;
+37c41
+&lt;         echo -e &quot;$i: FAIL&quot;
+---
+&gt;         echo -e &quot;$i: ${COLOR_FAIL}FAIL${COLOR_NC}&quot;
+40c44
+&lt;         echo -e &quot;$i: success&quot;
+---
+&gt;         echo -e &quot;$i: ${COLOR_SUCCESS}success${COLOR_NC}&quot;</code></pre>
+<p><img src="../assets/bash-testing/color-output-example.png"
+title="У общества без цветовой дифференциации тестов нет цели"
+alt="Удачно завершённые тесты имеют зелёный цвет, неудачно завершённые красный" /></p>
+<h2 id="вспомогательные-функции">Вспомогательные функции</h2>
+<p>Почти всё готово! Остался только один момент - каждый раз сравнивать
+значения и если они не соответсвуют ожиданиям писать сообщение и делать
+выход немного утомительно. Т.е. у нас во всех тестах будет такая
+конструкция:</p>
+<pre class="shell"><code>...
+if [ ... ]; then
+    echo &quot;some error message&quot;
+    exit 1
+fi
+...</code></pre>
+<p>Добавим вспомогательную функцию <code>assert</code> которая будет
+испонять этот шаблонный код.</p>
+<pre class="shell"><code>assert() {
+    message=${3:-&quot;&quot;}
+
+    local diff_value
+    set -o pipefail
+    diff_value=$(diff  &lt;(echo &quot;$1&quot; ) &lt;(echo &quot;$2&quot;) | sed -z &#39;s/\n/\\n/g&#39;)
+
+    if [ $? -ne 0 ];
+    then
+        echo -e &quot;$message:\n$diff_value&quot;
+        exit 1
+    fi
+}</code></pre>
+<p>Она принимате три параметра: первые два - сравниваемые значения,
+третий - сообщение об ошибке, он не обязателен.</p>
+<p>Вызывается так:</p>
+<pre class="shell"><code>assert 10 $a &quot;Кол-во чего-то там должно быть 10&quot;</code></pre>
+<p>Стоит пояснить эти две строки:</p>
+<pre class="shell"><code>set -o pipefail
+diff_value=$(diff  &lt;(echo &quot;$1&quot; ) &lt;(echo &quot;$2&quot;) | sed -z &#39;s/\n/\\n/g&#39;)</code></pre>
+<p><code>set -o pipefail</code> делает так, что мы получаем последний
+ненулевой код завершения в конвеере, иначе, если команда
+<code>diff</code> вернёт <code>1</code> следующая за ней команда
+<code>sed</code> вернёт <code>0</code> и мы никогда не узнаем что
+значения у нас отличаются: условие <code>if [ $? -ne 0 ];</code> никогда
+не сработает.</p>
+<p>Ок, функция у нас есть. Но куда её поместить? Если поместить её в
+файл <code>test.sh</code> то она будет не доступна в скриптах с тестами
+потому как они запускаются в отдельном интерпретаторе. Остаётся только
+поместить её в отдельный файл. Так и поступим:</p>
+<pre class="shell"><code>$ touch utils.sh</code></pre>
+<p>Теперь структура директорий следующая:</p>
+<pre class="shell"><code>$ tree ./
+./
+├── test
+│   ├── test_assert_1.sh
+│   └── test_assert_2.sh
+├── test.sh
+└── utils.sh
+1 directory, 4 files</code></pre>
+<p>Но, совершенно нет никакого желания в каждый тестовый файл подключать
+наш файл с утилитами. Тогда подгрузим его в shell который исполняет
+тест!</p>
+<pre class="diff"><code>4a5,6
+&gt; CURR_DIR=$(pwd)
+&gt; 
+34c36
+&lt;     out=$(cd $scrip_dir &amp;&amp; bash ./$script_file)
+---
+&gt;     out=$(cd $scrip_dir &amp;&amp; bash --noprofile --norc -c &quot;source $CURR_DIR/utils.sh; source ./$script_file&quot;)</code></pre>
+<p>Перепишем наши тесты так чтобы они использовали эту утилиту.</p>
+<pre class="shell"><code>$ echo &quot;assert 1 2 \&quot;1 не равно 2\&quot;&quot; &gt; test/test_assert_1.sh
+$ echo &quot;assert 2 2 \&quot;2 не равно 2\&quot;&quot; &gt; test/test_assert_2.sh</code></pre>
+<p>Запускаем:</p>
+<pre class="shell"><code>$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: success
+
+ERRORS:
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+&lt; 1
+---
+&gt; 2
+
+RESULT:
+total tests run: 2
+successfully: 1
+failure: 1</code></pre>
+<p>Добавим в каждый из тестов ещё по вызову <code>assert</code> и
+посмотрим что будет.</p>
+<pre class="shell"><code>$ echo &quot;assert 3 3 \&quot;3 не равно 3\&quot;&quot; &gt;&gt; test/test_assert_1.sh
+$ echo &quot;assert 3 4 \&quot;3 не равно 4\&quot;&quot; &gt;&gt; test/test_assert_2.sh
+$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+./test/test_assert_2.sh:
+3 не равно 4:
+1c1
+&lt; 3
+---
+&gt; 4
+
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+&lt; 1
+---
+&gt; 2
+
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2</code></pre>
+<p>Тут мы видим две вещи:</p>
+<ol type="1">
+<li>Если сравнение в <code>assert</code> не было пройдено то тест на
+этом завершается, иначе его выполнение продолжится</li>
+<li>Сообщения об ошибках выводятся в обратном порядке</li>
+</ol>
+<p>Если первый пункт нас полностью устраивает то со вторым надо что-то
+делать.</p>
+<pre class="diff"><code>56c56
+&lt;       done
+---
+&gt;       done | tac</code></pre>
+<pre class="shell"><code>$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+
+&gt; 2
+---
+&lt; 1
+1c1
+1 не равно 2:
+./test/test_assert_1.sh:
+
+&gt; 4
+---
+&lt; 3
+1c1
+3 не равно 4:
+./test/test_assert_2.sh:
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2</code></pre>
+<p>Ну, почти то что и требовалось, нужно только немного доработать
+напильником.</p>
+<p>Проблема в том, что у <code>tac</code> смотрит на символ перехода на
+новую строку, значит нужно сначала все символы заменить на какой-то
+другой символ, чтобы для каждого сообщения об ошибке было только одна
+строка, а затем всё вернуть как было:</p>
+<pre class="diff"><code>54c54
+&lt;               echo -e &quot;${i}:\n${FAIL_OUTPUT[$i]}&quot;
+---
+&gt;               echo -e &quot;${i}:\n${FAIL_OUTPUT[$i]}&quot; | sed -z &#39;s/\n/\\n/g&#39; 
+56c56
+&lt;       done | tac
+---
+&gt;       done | tac | sed &#39;s/\\n/\n/g&#39;</code></pre>
+<p>Ну, такое себе, но пока что пойдёт. Проверим:</p>
+<pre class="shell"><code>$ ./test.sh
+./test/test_assert_1.sh: FAIL
+./test/test_assert_2.sh: FAIL
+
+ERRORS:
+./test/test_assert_1.sh:
+1 не равно 2:
+1c1
+&lt; 1
+---
+&gt; 2
+
+./test/test_assert_2.sh:
+3 не равно 4:
+1c1
+&lt; 3
+---
+&gt; 4
+
+RESULT:
+total tests run: 2
+successfully: 0
+failure: 2</code></pre>
+<p>Что ж, кажется, на этом, пока что, можно остановится.</p>
+<h2 id="резюме">Резюме</h2>
+<p>Итак. Сейчас мы имеет минимальную среду для тестирования скриптов на
+bash, котора может:</p>
+<ul>
+<li>запускать как все скрипты так и соответствующие шаблону</li>
+<li>отмечает упавшие и прошедшие успешно тесты</li>
+<li>показывает статистику по тестам</li>
+<li>показывает ошибки в тестах</li>
+</ul>
+<p>Полный код можно посмотреть в этом <a
+href="https://github.com/4irik/bashunit">репозитории</a>.</p>
+<h3 id="todo">TODO</h3>
+<p>Следовало бы добавить:</p>
+<ul>
+<li>показ номера строки в тестовом файле на которой произошла
+ошибка</li>
+<li>флаг <code>--dry-run</code></li>
+<li>флаг <code>--fast-fail</code></li>
+<li>функции определяющие неравенство (<code>greaterThen</code>,
+<code>lessThen</code>, ..)</li>
+</ul>
+<p>В порядке бреда (а почему бы и не "да"?):</p>
+<ul>
+<li><a
+href="https://docs.phpunit.de/en/11.3/writing-tests-for-phpunit.html#data-providers">dataProvider</a>
+(?!)</li>
+<li>моки/стабы (?!)</li>
+<li>setup/teardown для файла/для всего тестового набора</li>
+<li>параллельное выполнение тестов (?!)</li>
+</ul>
+<hr />
+<ul>
+<li><a href="https://github.com/4irik/log/issues/2">Issue</a> для
+комментариев.</li>
+<li><a href="https://t.me/stdi0_h/31">Анонс</a> в телеграм-канале.</li>
+</ul>
+</body>
+</html>

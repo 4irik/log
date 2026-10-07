@@ -2,6 +2,8 @@
 
 Это эксперимент по ведению блога на GitHub.
 
+Сайт: <https://4irik.github.io/log/> ([llms.txt](https://4irik.github.io/log/llms.txt) для LLM)
+
 Пока что всё будет выглядеть так:
 
 - файлы с расширением `md` - статьи

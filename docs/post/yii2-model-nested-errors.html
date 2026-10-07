@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Делаем вложенные ошибки валидации в yii2</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="делаем-вложенные-ошибки-валидации-в-yii2">Делаем вложенные
+ошибки валидации в yii2</h1>
+<p class="date">2025-01-11</p>
+
+<p>Понадобилось мне провалидировать массив и, до кучи, указать, в каком
+элементе массива возникла ошибка.</p>
+<p>Код, выглядит, примерно так:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                RangeValidator::class,
+                &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                &#39;allowArray&#39; =&gt; true,
+                &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+            ],
+        ];
+    }
+}</code></pre>
+<p>И вроде всё уже хорошо, валидация работает:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;getErrors(); // [
+                     //     &#39;data&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;]
+                     // ]</code></pre>
+<p>Но вот не указано в каком именно элементе произошла ошибка.</p>
+<p>В <code>yii2</code> есть встроенный валидатор
+<code>EachValidator</code> который позволяет применить правило валидации
+к каждому элементу массива:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                EachValidator::class,
+                &#39;rule&#39; =&gt; [
+                    RangeValidator::class,
+                    &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                    &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+                ],
+            ],
+        ];
+    }
+}</code></pre>
+<p>Но вывод сообщения об ошибке от этого не изменится.</p>
+<p>Фронт у нас уже умеет конвертировать "плоские" ошибки во
+вложенные:</p>
+<pre class="php"><code>// вот такое сообщение
+[
+    &#39;data_1&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;],
+]
+// превратит в такое:
+[
+    &#39;data&#39; =&gt; [
+        1 =&gt; [&#39;Data must be between 0 and 9.&#39;],
+    ],
+]
+// и подсветит соответствующий элемент в форме.</code></pre>
+<p>Но вот писать каждый раз кастомный способ валидации поля мне не
+хочется, а хочется чтобы <code>EachValidator</code> сам добавлял в
+название атрибута индекс элемента который не прошёл валидацию.</p>
+<p>Вариант с расширением и переписыванием метода
+<code>validateAttribute</code> мне очень не понравился тем, что,
+фактически, мне нужно скопировать метод целиком и дописать в него оду
+строчку:</p>
+<pre class="php"><code>public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    $attribute = sprintf(&#39;%s_%d&#39;, $attribute, $key); // &lt;-- вот эта строчка
+    if ($this-&gt;allowMessageFromRule) {
+        $validationErrors = $dynamicModel-&gt;getErrors($attribute);
+        $model-&gt;addErrors([$attribute =&gt; $validationErrors]);
+    } else {
+        $this-&gt;addError($model, $attribute, $this-&gt;message, [&#39;value&#39; =&gt; $v]);
+    }
+
+    // ...
+}</code></pre>
+<p>В какой-то момент, при очередном перечитывании этого метода, мне
+пришла в голову идея: что если бы я мог знать какой элемент сейчас
+проходит валидацию, то я мог бы где-то в другом месте изменить название
+атрибута добавив к нему индекс элемента который не прошёл валидацию?</p>
+<p>Сделать это можно подменив значение валидируемой модели на объект,
+который бы нам и сообщил, при необходимости, какой элемент сейчас не
+прошёл валидацию.</p>
+<p>В самом начале метода есть проверка на тип валидируемого поля:</p>
+<pre class="php"><code>public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    if (!is_array($arrayOfValues) &amp;&amp; !$arrayOfValues instanceof \ArrayAccess)
+
+    // ...
+}</code></pre>
+<p>Под условие <code>!$arrayOfValues instanceof \ArrayAccess</code>
+отлично подходит <code>ArrayIterator</code>, а ещё у него есть метод
+<code>key()</code> возвращающий индекс текущего элемента.</p>
+<p>Так, а как мне подменить <code>array</code> в модели на
+<code>ArrayIterator</code>? Писать в каждую модель какие-то
+преобразования можно, конечно, но это:</p>
+<ol type="1">
+<li>Это нужно не забыть сделать в каждой новой модели</li>
+<li>Старые модели, в которых нужен этот функционал, нужно будет
+дописывать</li>
+<li>Да и просто это всё очень лениво делать</li>
+</ol>
+<p>Очень быстро мне пришла в голову идея с прокси-объектом: мы можем
+подменить исходную модель на прокси, который подменит <code>array</code>
+на <code>ArrayIterator</code>, а так же, в нужный момент, сможет
+изменить имя атрибута (т.е. в момент добавления сообщения об
+ошибке).</p>
+<pre class="php"><code>class ProxyModel extends Model {
+    private ArrayIterator $data;
+
+    public function __construct(private Model $model, private string $attribute, $config = []) {
+        $this-&gt;data = new ArrayIterator($model-&gt;{$attribute};);
+    }
+
+    public function __get($name): mixed
+    {
+        return $this-&gt;data;
+    }
+
+    public function __set($name, $value): void
+    {
+        $this-&gt;model-&gt;{$name} = $value-&gt;getArrayCopy();
+    }
+
+    public function addError($attribute, $error = &#39;&#39;)
+    {
+        $attribute = sprintf(&#39;%s_%d&#39;, $attribute, $this-&gt;data-&gt;key());
+        $this-&gt;model-&gt;addError($attribute, $error);
+    }
+}</code></pre>
+<p>Теперь можно расширить <code>EachValidator</code> без переписывания
+методов:</p>
+<pre class="php"><code>class EachItemValidator extends EachValidator
+{
+    public function validateAttribute($model, $attribute): void
+    {
+        $proxyModel = new ProxyModel($model, $attribute);
+
+        parent::validateAttribute($proxyModel, $attribute);
+    }
+}</code></pre>
+<p>Перепишем модель на использование нового валидатора:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                EachItemValidator::class,
+                &#39;rule&#39; =&gt; [
+                    RangeValidator::class,
+                    &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                    &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+                ],
+            ],
+        ];
+    }
+}</code></pre>
+<p>Результат будет такой:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;getErrors(); // [
+                     //     &#39;data_1&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;]
+                     // ]</code></pre>
+<p>Единственная проблема - это проверка поля на прохождение валидации
+будет возвращать <code>true</code>:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;hasErrors(); // true
+$model-&gt;hasErrors(&#39;data&#39;); // false</code></pre>
+<hr />
+<p><a href="https://github.com/4irik/log/issues/5">Issue</a> для
+комментариев</p>
+<p>Мой ТГ - <a href="https://t.me/stdi0_h">https://t.me/stdi0_h</a></p>
+</body>
+</html>

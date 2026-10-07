@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Создание идеального скринкаста работы с терминалом</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="создание-идеального-скринкаста-работы-с-терминалом">Создание
+идеального скринкаста работы с терминалом</h1>
+<p class="date">2024-09-03</p>
+
+<p>Недавно выложил свою реализацию <a
+href="https://github.com/4irik/lisphp">lisp-интерпретатора</a>
+написанного на PHP. И, чтобы можно было хотя бы как-то посмотреть его
+работу ничего не запуская, решил прикрепить в readme скринкаст работы в
+REPL.</p>
+<p>Сразу покажу результат:</p>
+<p><a href="https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK"><img
+src="https://asciinema.org/a/Tgr77lcJ13cXYGOuaDB3lyrOK.svg"
+alt="asciicast" /></a></p>
+<p>В принципе, в win11, уже всё для этого есть, но вводить текст без
+запинок опечаток и с постоянной скоростью оказалось не очень-то и
+просто. "Нужно отдать это дело на откуп программе!" - первая мысль
+посетившая меня после нескольких неудачных попыток.</p>
+<p>Я использую WSL c Ubuntu для разработки и, уж чего-чего, а в линуксе
+100% есть или уже готовая программа или её можно собрать на коленке из
+bash-скриптов и <del>палок</del> того что найдём в
+<code>/usr/bin</code>.</p>
+<p>Итак, мне нужно эмулировать ввод текста с клавиатуры. Недолгий поиск
+привёл меня к <code>xdotool</code>. Есть только одна проблема:</p>
+<pre class="shell"><code>xdotool --type &quot;hello&quot;</code></pre>
+<p>ничего не выводит, а если спросить</p>
+<pre class="shell"><code>echo $? # 0</code></pre>
+<p>т.е. всё хорошо.</p>
+<p>Выяснилось, что буква "x" в её названии не просто так, утилита
+работает только с x11-приложениями. Stack Overflow подсказал её
+решение:</p>
+<pre class="shell"><code>sudo apt install xterm</code></pre>
+<p>Благо WSL2 позволяет без проблем работать с GUI-приложениями линукса.
+Все дальнейшие эксперименты с <code>xdotool</code>, и сам скринкаст, я
+проводил в <code>xterm</code>.</p>
+<p>Одна проблема решена, теперь надо как-то сделать так чтобы на экране
+появлялось много строк. <code>xdotool</code> позволяет написать для неё
+последовательность команд и передать её на вход файлом или из stdin.</p>
+<pre class="shell"><code>cat scenario.txt | xdotool -
+xdotool scenario.txt</code></pre>
+<p>Мне больше импонирует первый вариант, потому, что так можно будет
+генерировать сценарий "на лету".</p>
+<p>Итак, вручную я вводил в терминал что-то вроде этого:</p>
+<pre class="shell"><code>$ make repl
+?&gt; ; First, let&#39;s see some help information.
+?&gt; :help
+?&gt; ; Let&#39;s write some code.
+?&gt; (defn sum (n a)
+?&gt; ..(cond (= n 0)
+# …
+?&gt; ; Let&#39;s exit the REPL
+?&gt; :q</code></pre>
+<p>Видно, что нужно сделать две вещи:</p>
+<ul>
+<li>запустить REPL</li>
+<li>вводить в него различные строки</li>
+</ul>
+<p>Для запуска программ в xdotool предлагают использовать такой
+синтаксис:</p>
+<pre class="text"><code>exec program_name arg_1 </code></pre>
+<p>Запуск программы занимает какое-то время, нужно подождать пока она
+запустится и продолжить ввод, иначе <code>xdotool</code> продолжит ввод
+не дожидаясь её готовности к работе:</p>
+<pre class="text"><code>sleep 1</code></pre>
+<p>Это заставит утилиту подождать 1 секунду.</p>
+<p>Для ввода строк нам нужна такая команда:</p>
+<pre class="text"><code>type &quot;some string&quot;</code></pre>
+<p>Ещё нам нужен перевод на новую строку:</p>
+<pre class="text"><code>key Return</code></pre>
+<p>Таким образом, чтобы ввести команду в REPL нужно два вызова:</p>
+<pre class="text"><code>type &quot;some string&quot;
+key Return</code></pre>
+<p>Также нужно учесть, что, по-умолчанию, задержка ввода символов 12 мс.
+Это очень мало, нужно чтобы было похоже на ввод человеком:</p>
+<pre class="text"><code>type --delay 200 &quot;some string&quot;</code></pre>
+<p>Ещё нужно дать время зрителю прочитать строку целиком:</p>
+<pre class="text"><code>key --delay 1000 Return</code></pre>
+<p>Итого получим:</p>
+<pre class="text"><code>type --delay 200 &quot;some string&quot;
+key --delay 1000 Return</code></pre>
+<p>Отлично, теперь можно представить как будет выглядеть сценарий:</p>
+<pre class="text"><code>exec make repl
+sleep 1
+type --delay 200 &quot;; First, let&#39;s see some help info&quot;
+key --delay 1000 Return
+type --delay 200 &quot;:help&quot;
+key --delay 1000 Return
+type --delay 200 &quot;; Let&#39;s write some code.&quot;
+key --delay 1000 Return
+type --delay 200 &quot;(defn sum (n a)&quot;
+key --delay 1000 Return
+type --delay 200 &quot;(cond (= n 0)&quot;
+key --delay 1000 Return
+…</code></pre>
+<p>Писать это всё вручную нет никакого желания, проще написать текст
+который нужно вводить, а сценарий сгенерировать программой. Т.е.
+исходный сценарий будет выглядеть как-то так:</p>
+<pre class="text"><code>exec make repl
+sleep 1
+; First, let&#39;s see some help info
+:help
+; Let&#39;s write some code.
+(defn sum (n a)
+(cond (= n 0)
+…</code></pre>
+<p>Как видите, за исключением первых двух строк, заготовка ничем не
+отличается от того что я бы вводил руками.</p>
+<p>Осталось написать генератор сценария для <code>xdotool</code> на
+основе текста:</p>
+<pre class="bash"><code>#!/bin/bash
+
+FILE=$1
+SPEED=${2:-100}
+DELAY=${3:-1000}
+
+while IFS= read -r line; do
+    if [[ $line == exec* ]] || [[ $line == sleep* ]]
+    then
+        echo $line
+    else
+        echo &quot;type --delay $SPEED \&quot;$line\&quot;&quot;
+        echo &quot;key --delay $DELAY Return&quot;
+    fi
+done &lt; $FILE</code></pre>
+<p><em>Сам скрипт я закинул в <a
+href="https://gist.github.com/4irik/522ded4ac9b3a1f805087cd1ca9722ee">gist</a>.
+Предложения по улушению принимаются!</em></p>
+<p>Помимо имени файла, я добавил два опциональных параметра:</p>
+<ol type="1">
+<li>скорость ввода символов</li>
+<li>задержка перед нажатием <code>Enter</code></li>
+</ol>
+<p>Смотрим результат:</p>
+<pre class="shell"><code>$ ./gen.sh scenario.txt
+exec make repl
+sleep 1
+type --delay 100 &quot;; First, let&#39;s see some help information.&quot;
+key --delay 1000 Return
+type --delay 100 &quot;:help&quot;
+key --delay 1000 Return
+...</code></pre>
+<p>На первый взгляд всё хорошо. Попробуем запустить:</p>
+<pre class="shell"><code>$ ./gen.sh scenario.txt | xdotool -
+; docker compose run --rm --user “1000:1000” app ./repl
+ First, let&#39;s see some help infothe input device is not TTY
+make: *** [Makefile:20: repl] Error 1
+rmation.
+:help
+...</code></pre>
+<p>Хм, не сработало, чего-то не так с TTY у докера (как видно из вывода,
+команда <code>make repl</code> запускает докер). Попробуем
+по-другому:</p>
+<pre class="shell"><code>$ ./gen.sh scenario.txt &gt; scen.txt &amp;&amp; xdotool scen.txt
+docker compose run --rm --user &quot;1000:1000&quot; app ./repl
+
+=====================================================
+Наберите :help для просмотра списка доступных команд
+=====================================================
+
+?&gt;; First, let&#39;s see some help information.
+?&gt;:help
+...</code></pre>
+<p>Отлично! Правда мне не нравится необходимость создавать промежуточный
+файл, но работа выполняется, жить можно.</p>
+<p>Осталось решить несколько проблем, с которыми, впрочем, можно
+жить:</p>
+<ol type="1">
+<li><code>xdotool</code> не позволяет написать в консоль
+<code>make repl</code> и продолжить ввод уже в его окно приглашения,
+нужно именно запустить его, т.е. вызвать <code>exec make repl</code>.
+Из-за этого первую строчку в скринкасте мне пришлось смонтировать (и это
+большой плюс asciinema! Если бы я писал видео, то не знаю сколько бы сил
+этот монтаж у меня отнял.)</li>
+<li>Если поставить задержку перед вводом <code>Enter</code> более 1
+секунды , то <code>xdotool</code> будет "нажимать" его несколько
+раз</li>
+<li>Хотелось бы разобраться почему не работает
+<code>cat scenario.txt | xdotool -</code>, быстрый поиск по проблеме мне
+не помог</li>
+</ol>
+<p>Если Вы знаете как обойти какую-либо из этих проблем или как-то,
+по-своему, решаете проблему идеального ввода текста для скринкаста, ну
+или просто Вам есть что сказать, приглашаю в <a
+href="https://github.com/4irik/log/issues/1">комментарии</a>! Так же у
+меня есть в <a href="https://t.me/stdi0_h/29">телеграм-канал</a>.</p>
+</body>
+</html>
