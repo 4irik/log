@@ -73,7 +73,7 @@ for src in "$OUT"/post/*.md; do
 	} | pandoc --standalone --from gfm --syntax-highlighting=none \
 		--metadata lang=ru --metadata document-css=false \
 		--metadata pagetitle="$title" --css ../style.css \
-		--variable header-includes="<link rel=\"describedby\" href=\"$SITE_URL/llms.txt\">" \
+		--variable header-includes="<link rel=\"describedby\" href=\"$SITE_URL/llms.txt\"><link rel=\"alternate\" type=\"text/markdown\" href=\"$SITE_URL/post/$name.md\">" \
 		--output "$OUT/post/$name.html"
 
 	printf '%s|%s|%s|ru\n' "$date" "$title" "$name" >> "$entries"
@@ -104,7 +104,7 @@ for src in "$OUT"/post/*.en.md; do
 	} | pandoc --standalone --from gfm --syntax-highlighting=none \
 		--metadata lang=en --metadata document-css=false \
 		--metadata pagetitle="$title" --css ../style.css \
-		--variable header-includes="<link rel=\"describedby\" href=\"$SITE_URL/llms.txt\">" \
+		--variable header-includes="<link rel=\"describedby\" href=\"$SITE_URL/llms.txt\"><link rel=\"alternate\" type=\"text/markdown\" href=\"$SITE_URL/post/$name.en.md\">" \
 		--output "$OUT/post/$name.en.html"
 
 	printf '%s|%s|%s|en\n' "$date" "$title" "$name" >> "$entries_en"
