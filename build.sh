@@ -8,7 +8,12 @@ set -eu
 SITE_URL="${SITE_URL:-https://4irik.github.io/log}"
 TITLE='0blog'
 DESC='Технический блог: посты — markdown-файлы, комментарии — GitHub issues.'
-CONTACTS='[тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko), CV: [ru](assets/cv/resume-ru.pdf), [en](assets/cv/resume-en.pdf)'
+CONTACTS_RU='Связь: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
+Почитать: [Блог в ТГ](https://t.me/stdi0_h)\
+Резюме: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
+CONTACTS_EN='Contact: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
+Read: [Блог в ТГ](https://t.me/stdi0_h) (in Russian)\
+CV: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
 
 OUT=docs
 
@@ -27,11 +32,11 @@ entries_en="$OUT/.entries-en"
 merged="$OUT/.merged"
 printf '# %s <a href="en.html" class="lang">[en]</a>\n\n' "$TITLE" > "$index"
 [ ! -f "$OUT/about.md" ] || { cat "$OUT/about.md"; printf '\n'; } >> "$index"
-printf '\nКонтакты: %s\n\n## Посты\n\n' "$CONTACTS" >> "$index"
+printf '\n%s\n\n## Посты\n\n' "$CONTACTS_RU" >> "$index"
 printf '# %s <a href="index.html" class="lang">[ru]</a>\n\n' "$TITLE" > "$index_en"
 [ ! -f "$OUT/about.en.md" ] || { cat "$OUT/about.en.md"; printf '\n'; } >> "$index_en"
-printf '\nContacts: %s\n\n## Posts\n\n' "$CONTACTS" >> "$index_en"
-printf '# %s\n\n> Контакты: %s\n\n## Посты\n\n' "$TITLE" "$CONTACTS" > "$OUT/llms.txt"
+printf '\n%s\n\n## Posts\n\n' "$CONTACTS_EN" >> "$index_en"
+printf '# %s\n\n%s\n\n## Посты\n\n' "$TITLE" "$CONTACTS_RU" > "$OUT/llms.txt"
 printf '# %s\n\n%s\n' "$TITLE" "$DESC" > "$OUT/llms-full.txt"
 : > "$entries"
 : > "$entries_en"

@@ -1,6 +1,8 @@
 # 0blog
 
-> Контакты: [тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko), CV: [ru](assets/cv/resume-ru.pdf), [en](assets/cv/resume-en.pdf)
+Связь: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
+Почитать: [Блог в ТГ](https://t.me/stdi0_h)\
+Резюме: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)
 
 ## Посты
 
