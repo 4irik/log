@@ -39,6 +39,11 @@ code {
 	font-family: sans-serif;
 }
 
+h1 .mono {
+	font-family: Menlo, Monaco, Consolas, "Lucida Console", monospace;
+	font-weight: normal;
+}
+
 h1 a.lang {
 	font-size: 0.5em;
 	font-family: sans-serif;
