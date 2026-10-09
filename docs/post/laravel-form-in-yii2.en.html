@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Laravel-style form validation in yii2</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="laravel-style-form-validation-in-yii2">Laravel-style form
+validation in yii2</h1>
+<p class="date">2026-10-09</p>
+
+<p><img src="../assets/laravel-form-in-yii2/laryii2-form.png"
+alt="alt text" /></p>
+<p>I'm currently working on a <code>yii2</code> project whose entire
+backend is a REST API. So there are lots of forms and lots of
+boilerplate in the actions (<code>Action</code>):</p>
+<pre class="php"><code>public function run(Request $request): FormName|ResponseName
+{
+    $form = new FormName();
+    $form-&gt;load($request-&gt;getBodyParams());
+    if (!$form-&gt;validate()) {
+        return $form;
+    }
+
+    // ...
+
+    return new ResponseName($data);
+}</code></pre>
+<p>I'm tired of writing it every time, and besides, I don't like
+that:</p>
+<ol type="1">
+<li>the response signature has two types: the form, in case invalid data
+was passed, and the actual response;</li>
+<li>the form-handling code is boilerplate, it carries no meaning, just
+takes up space and costs time when reading/writing</li>
+</ol>
+<p>I want it like in Laravel: if the data fails validation, the
+controller method doesn't run at all. So it would look like this:</p>
+<pre class="php"><code>public function run(FormName $form): ResponseName
+{
+    // ...
+
+    return new ResponseName($data);
+}</code></pre>
+<p><code>middleware</code> and the <code>beforeAction</code> method come
+to mind right away, but yii2 doesn't have the former and the latter
+doesn't fit because there's no way to return a response to the user from
+it other than throwing an exception.</p>
+<p>Two options came to mind:</p>
+<ol type="1">
+<li>Create a descendant of <code>Action</code>, override its
+<code>runWithParams</code> method, and inherit all my classes from
+it;</li>
+<li>Substitute the <code>Action</code> class in autoloading with my
+own.</li>
+</ol>
+<p>The first option doesn't really work because I'd have to rework the
+whole project, the second one bothers me because on a framework update
+I'd have to carefully check whether anything changed in the
+<code>Action</code> class, but so far I haven't come up with anything
+better (and in the first option updating wouldn't be worry-free
+either).</p>
+<p>The second approach looks like this:</p>
+<ol type="1">
+<li>Copy <code>yii\base\Action</code> into our own directory (keeping
+the original namespace) and rewrite the <code>runWithParams</code>
+method:</li>
+</ol>
+<pre class="php"><code>&lt;?php
+
+namespace yii\base;
+
+use Yii;
+
+class Action extends Component
+{
+    // ... 
+
+    public function runWithParams($params)
+    {
+        if (!method_exists($this, &#39;run&#39;)) {
+            throw new InvalidConfigException(get_class($this) . &#39; must define a &quot;run()&quot; method.&#39;);
+        }
+        $args = $this-&gt;controller-&gt;bindActionParams($this, $params);
+        Yii::debug(&#39;Running action: &#39; . get_class($this) . &#39;::run(), invoked by &#39; . get_class($this-&gt;controller), __METHOD__);
+        if (Yii::$app-&gt;requestedParams === null) {
+            Yii::$app-&gt;requestedParams = $args;
+        }
+        if ($this-&gt;beforeRun()) {
+            $result = null;
+            $request = Yii::$app-&gt;getRequest();
+            foreach ($args as $value) {
+                if ($value instanceof Model) {
+                    $value-&gt;load(match ($request-&gt;getMethod()) {
+                        &#39;POST&#39; =&gt; $request-&gt;getBodyParams(),
+                        default =&gt; $request-&gt;getQueryParams()
+                    });
+
+                    if (!$value-&gt;validate()) {
+                        $result = $value;
+                        break;
+                    }
+                }
+            }
+
+            $result = is_null($result)
+                ? call_user_func_array([$this, &#39;run&#39;], $args)
+                : $result;
+
+            $this-&gt;afterRun();
+
+            return $result;
+        }
+
+        return null;
+    }
+
+    // ... 
+}</code></pre>
+<ol start="2" type="1">
+<li>Substitute the original class in autoloading with ours:</li>
+</ol>
+<pre class="php"><code>// bootstrap.php
+
+// ...
+
+Yii::$classMap[&#39;yii\base\Action&#39;] = __DIR__ . &#39;/../component/Action.php&#39;;</code></pre>
+<ol start="3" type="1">
+<li>Declare our form class in the application config, in the
+<code>components</code> section (so the application container can create
+a form object, otherwise it will say it doesn't know it):</li>
+</ol>
+<pre class="php"><code>&lt;?php
+
+return [
+    &#39;components&#39; =&gt; [
+    // ...
+        FormName::class =&gt; FormName::class,
+    ],
+]</code></pre>
+<p>That's it: if a request comes in and the form fails validation, the
+user sees a response with errors, the controller action doesn't run, and
+we don't write the boilerplate form creation/population/validation code
+every time.</p>
+<p>Happy end!</p>
+<hr />
+<p><a href="https://github.com/4irik/log/issues/4">Issue</a> for
+comments</p>
+<p>My Telegram - <a
+href="https://t.me/stdi0_h">https://t.me/stdi0_h</a></p>
+<section id="comments">
+<h2>Comments</h2>
+<p><a href="https://github.com/4irik/log/issues">Comments on GitHub</a></p>
+</section>
+<script src="../comments.js"></script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Nested validation errors in yii2</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="nested-validation-errors-in-yii2">Nested validation errors in
+yii2</h1>
+<p class="date">2026-10-09</p>
+
+<p>I needed to validate an array and, while I was at it, indicate which
+array element the error occurred in.</p>
+<p>The code looks something like this:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                RangeValidator::class,
+                &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                &#39;allowArray&#39; =&gt; true,
+                &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+            ],
+        ];
+    }
+}</code></pre>
+<p>And everything seems fine already, validation works:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;getErrors(); // [
+                     //     &#39;data&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;]
+                     // ]</code></pre>
+<p>But it doesn't say which element the error occurred in.</p>
+<p><code>yii2</code> has a built-in <code>EachValidator</code> that
+applies a validation rule to each element of an array:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                EachValidator::class,
+                &#39;rule&#39; =&gt; [
+                    RangeValidator::class,
+                    &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                    &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+                ],
+            ],
+        ];
+    }
+}</code></pre>
+<p>But the error message output doesn't change because of it.</p>
+<p>Our frontend already knows how to convert "flat" errors into nested
+ones:</p>
+<pre class="php"><code>// a message like this
+[
+    &#39;data_1&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;],
+]
+// turns into this:
+[
+    &#39;data&#39; =&gt; [
+        1 =&gt; [&#39;Data must be between 0 and 9.&#39;],
+    ],
+]
+// and highlights the corresponding element in the form.</code></pre>
+<p>But I don't want to write a custom way of validating the field every
+time; I want <code>EachValidator</code> itself to add the index of the
+element that failed validation to the attribute name.</p>
+<p>I really didn't like the option of extending it and rewriting the
+<code>validateAttribute</code> method, because, effectively, I need to
+copy the whole method and add a single line:</p>
+<pre class="php"><code>public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    $attribute = sprintf(&#39;%s_%d&#39;, $attribute, $key); // &lt;-- this line
+    if ($this-&gt;allowMessageFromRule) {
+        $validationErrors = $dynamicModel-&gt;getErrors($attribute);
+        $model-&gt;addErrors([$attribute =&gt; $validationErrors]);
+    } else {
+        $this-&gt;addError($model, $attribute, $this-&gt;message, [&#39;value&#39; =&gt; $v]);
+    }
+
+    // ...
+}</code></pre>
+<p>At some point, while rereading this method yet again, an idea came to
+me: what if I could know which element is currently being validated?
+Then I could, somewhere else, change the attribute name by appending the
+index of the element that failed validation.</p>
+<p>This can be done by substituting the validated model's value with an
+object that can tell us, when needed, which element failed
+validation.</p>
+<p>At the very beginning of the method there's a check on the type of
+the validated field:</p>
+<pre class="php"><code>public function validateAttribute($model, $attribute)
+{
+    // ...
+
+    if (!is_array($arrayOfValues) &amp;&amp; !$arrayOfValues instanceof \ArrayAccess)
+
+    // ...
+}</code></pre>
+<p><code>ArrayIterator</code> fits the
+<code>!$arrayOfValues instanceof \ArrayAccess</code> condition
+perfectly, and it also has a <code>key()</code> method that returns the
+index of the current element.</p>
+<p>OK, but how do I substitute <code>array</code> in the model with
+<code>ArrayIterator</code>? Writing some transformations in every model
+is possible, of course, but:</p>
+<ol type="1">
+<li>You have to remember to do it in every new model</li>
+<li>Old models that need this functionality would have to be
+updated</li>
+<li>And honestly it's all just tedious to do</li>
+</ol>
+<p>Very quickly the idea of a proxy object came to mind: we can
+substitute the original model with a proxy that replaces
+<code>array</code> with <code>ArrayIterator</code>, and, at the right
+moment, can change the attribute name (i.e. at the moment the error
+message is added).</p>
+<pre class="php"><code>class ProxyModel extends Model {
+    private ArrayIterator $data;
+
+    public function __construct(private Model $model, private string $attribute, $config = []) {
+        $this-&gt;data = new ArrayIterator($model-&gt;{$attribute};);
+    }
+
+    public function __get($name): mixed
+    {
+        return $this-&gt;data;
+    }
+
+    public function __set($name, $value): void
+    {
+        $this-&gt;model-&gt;{$name} = $value-&gt;getArrayCopy();
+    }
+
+    public function addError($attribute, $error = &#39;&#39;)
+    {
+        $attribute = sprintf(&#39;%s_%d&#39;, $attribute, $this-&gt;data-&gt;key());
+        $this-&gt;model-&gt;addError($attribute, $error);
+    }
+}</code></pre>
+<p>Now we can extend <code>EachValidator</code> without rewriting
+methods:</p>
+<pre class="php"><code>class EachItemValidator extends EachValidator
+{
+    public function validateAttribute($model, $attribute): void
+    {
+        $proxyModel = new ProxyModel($model, $attribute);
+
+        parent::validateAttribute($proxyModel, $attribute);
+    }
+}</code></pre>
+<p>Let's rewrite the model to use the new validator:</p>
+<pre class="php"><code>class Form extends Model {
+    public $data;
+
+    public function rules(): array
+    {
+        return [
+            [&#39;data&#39;, &#39;required&#39;,],
+            [
+                &#39;data&#39;,
+                EachItemValidator::class,
+                &#39;rule&#39; =&gt; [
+                    RangeValidator::class,
+                    &#39;range&#39; =&gt; [1,2,3,4,5,6,7,8,9,0],
+                    &#39;message&#39; =&gt; &#39;{attribute} must be between 0 and 9.&#39;,
+                ],
+            ],
+        ];
+    }
+}</code></pre>
+<p>The result will be:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;getErrors(); // [
+                     //     &#39;data_1&#39; =&gt; [&#39;Data must be between 0 and 9.&#39;]
+                     // ]</code></pre>
+<p>The only problem is that checking the field for validation success
+will return <code>true</code>:</p>
+<pre class="php"><code>$model = new Form();
+$model-&gt;load([1,11,3], &#39;&#39;);
+$model-&gt;validate(); // false
+$model-&gt;hasErrors(); // true
+$model-&gt;hasErrors(&#39;data&#39;); // false</code></pre>
+<hr />
+<p><a href="https://github.com/4irik/log/issues/5">Issue</a> for
+comments</p>
+<p>My Telegram - <a
+href="https://t.me/stdi0_h">https://t.me/stdi0_h</a></p>
+<section id="comments">
+<h2>Comments</h2>
+<p><a href="https://github.com/4irik/log/issues">Comments on GitHub</a></p>
+</section>
+<script src="../comments.js"></script>
+</body>
+</html>

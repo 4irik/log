@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Writing a simple web app in Clojure</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<h1 id="writing-a-simple-web-app-in-clojure">Writing a simple web app in
+Clojure</h1>
+<p class="date">2026-10-09</p>
+
+<p>For a long time I've been thinking about writing something in
+something like Lisp (probably ever since I read a translation of an
+article about how back in 1996, in the US, people were building things
+like online stores with it and didn't even consider those who wrote in
+C/C++ as competitors :D (by the way, does anyone have a link to it?)). I
+even wrote my own <a
+href="https://github.com/4irik/lisphp">implementation</a>. Actually, I
+was planning to use it and polish the things that would come up along
+the way. But what would that give me in terms of job prospects? Sure,
+I'd get better at writing programs with lots of parentheses :D, but
+that's it, and what I really need is to know the tools and the
+language's quirks. In short: maybe someday.</p>
+<p>For a few years now I've been periodically glancing at Clojure and
+Haskell, I even tried writing hello-worlds in the latter (and even
+writing PHP in a functional style, but that was: first, hard to read,
+second, people looked at the code like <code>:-[ ]</code> and at me with
+pity %) ). There's also Lisp Scheme and Racket, but, as far as I know,
+of the functional languages, only Clojure and Haskell are actually used
+outside universities these days.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>The code is here - <a
+href="https://github.com/4irik/simple-clojure-web-app">https://github.com/4irik/simple-clojure-web-app</a>.</p>
+</div>
+<h2 id="application-requirements">Application requirements</h2>
+<p>Implement a CRUD application with patient data.</p>
+<p><strong>Dataset:</strong></p>
+<ul>
+<li>Patient full name</li>
+<li>Sex</li>
+<li>Date of birth</li>
+<li>Address</li>
+<li>OMS (mandatory health insurance) policy number</li>
+</ul>
+<h3 id="features">Features</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />view the patient list</label></li>
+<li><label><input type="checkbox" />search</label></li>
+<li><label><input type="checkbox" />filtering</label></li>
+<li><label><input type="checkbox" />creation</label></li>
+<li><label><input type="checkbox" />deletion</label></li>
+<li><label><input type="checkbox" />editing</label></li>
+<li><label><input type="checkbox" />validation</label></li>
+</ul>
+<h3 id="additionally">Additionally</h3>
+<ul>
+<li>no frameworks</li>
+<li>use vim/emacs</li>
+<li>write tests</li>
+<li>REPL-driven development</li>
+<li>CI (build on commit)</li>
+<li>prepare the product for deployment to K8s</li>
+<li>PgSql as the DBMS</li>
+</ul>
+<h2 id="preparation">Preparation</h2>
+<h3 id="infrastructure">Infrastructure</h3>
+<p>As always, we'll work through Docker. Since besides Clojure itself we
+also have a DBMS, we'll use <code>docker compose</code>.</p>
+<p>Let's see if there's anything among Docker images. There is, even an
+official one - <a
+href="https://hub.docker.com/_/clojure">https://hub.docker.com/_/clojure</a>.
+Reading:</p>
+<blockquote>
+<ol type="1">
+<li>leiningen⁠
+<ol type="1">
+<li>The oldest and probably most common tool</li>
+</ol></li>
+</ol>
+</blockquote>
+<p>this one fits, let's take the latest version. Let's grab pgsql right
+away too:</p>
+<p><em>docker-compose.yml:</em></p>
+<pre class="yml"><code>services:
+    app:
+        image: clojure:temurin-23-lein-alpine
+        restart: always
+        working_dir: /app
+        volumes:
+            - ./:/app
+    db:
+        image: postgres:17.0-alpine3.20
+        restart: always
+        # set shared memory limit when using docker-compose
+        shm_size: 128mb
+        # or set shared memory limit when deploy via swarm stack
+        #volumes:
+        #  - type: tmpfs
+        #    target: /dev/shm
+        #    tmpfs:
+        #      size: 134217728 # 128*2^20 bytes = 128Mb
+        ports:
+            - 5432:5432
+        environment:
+            POSTGRES_PASSWORD: pswd
+            POSTGRES_DB: patient_db
+            PGDATA: ./pgdata
+</code></pre>
+<p><em>I took the postgres config from the example on the hub
+page.</em></p>
+<p>Let's quickly draft a <code>Makefile</code>:</p>
+<pre class="make"><code>help: ## Show this help
+    @printf &quot;\033[33m%s:\033[0m\n&quot; &#39;Available commands&#39;
+    @awk &#39;BEGIN {FS = &quot;:.*?## &quot;} /^[a-zA-Z0-9_-]+:.*?## / {printf &quot;  \033[32m%-18s\033[0m %s\n&quot;, $$1, $$2}&#39; $(MAKEFILE_LIST)
+
+build: ## Build containers
+    docker compose build
+
+up: ## Run application
+    docker compose up -d
+
+down: ## Down application
+    docker compose down
+
+restart: down up ## Restart application
+
+shell: ## Shell at clojure docker
+    docker compose exec app bash
+
+log: ## Show container logs
+    docker compose logs -f</code></pre>
+<h3 id="first-steps">First steps</h3>
+<p>Since I'm new to Clojure, it took me a while to figure out that
+<code>lein</code> is <a href="https://leiningen.org/">leiningen</a>, the
+project build tool, and not some specific version of clojure. At first I
+was looking for something like <code>clojure</code> and <code>clj</code>
+inside the docker image and couldn't find it, then everything fell into
+place.</p>
+<p>Let's enter the docker image and create the application skeleton:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ make start &amp;&amp; make shell
+$ lein new patient</code></pre>
+<p>we got something like this:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ tree
+.
+├── CHANGELOG.md
+├── LICENSE
+├── Makefile
+├── README.md
+├── doc
+│   └── intro.md
+├── docker-compose.yml
+├── project.clj
+├── resources
+├── src
+│   └── patient
+│       ├── core.clj
+├── target
+│   ├── classes
+│   │   └── META-INF
+│   │       └── maven
+│   │           └── patient
+│   │               └── patient
+│   │                   └── pom.properties
+│   ├── repl-port
+│   └── stale
+│       └── leiningen.core.classpath.extract-native-dependencies
+└── test
+    └── patient
+        └── core_test.clj
+
+14 directories, 14 files</code></pre>
+<p>We have tests, let's try running them:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ lein test
+
+lein test patient.core-test
+
+lein test :only patient.core-test/a-test
+
+FAIL in (a-test) (core_test.clj:7)
+FIXME, I fail.
+expected: (= 0 1)
+  actual: (not (= 0 1))
+
+Ran 1 tests containing 1 assertions.
+1 failures, 0 errors.
+Subprocess failed (exit code: 1)</code></pre>
+<p>Good, something already works. Let's add test running to the
+<code>Makefile</code>:</p>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>test: ## Run app tests
+    docker compose exec app lein test</code></pre>
+<p>Let's look into the <code>core.clj</code> file:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(ns patient.core)
+
+(defn foo
+&quot;I don&#39;t do a whole lot.&quot;
+  [x]
+  (println x &quot;Hello, World!&quot;))</code></pre>
+<p>For something to compile we need to add the <code>-main</code>
+function:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(ns patient.core)
+
+(defn -main
+  [&amp; args]
+  (println &quot;Hello, World!&quot;))
+
+(defn foo
+;; ...</code></pre>
+<p>Now let's try to build and run all this:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ lein run -m patient.core
+Hello, World!</code></pre>
+<p>Add the run command to <code>Makefile</code>:</p>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>run: ## Run application
+    docker compose exec app lein run -m patient.core</code></pre>
+<h3 id="editor">Editor</h3>
+<p>I already had Emacs installed and even somewhat preconfigured. Don't
+remember for what anymore. Here's the part of <code>init.el</code>
+related to this project:</p>
+<p><em>init.el:</em></p>
+<pre class="lisp"><code>(use-package cider
+  :ensure t)
+
+(use-package clojure-mode
+  :ensure t)</code></pre>
+<p>It would be nice to add a REPL. I found this article - <a
+href="https://grishaev.me/clj-repl-part-4/#nrepl-в-docker">https://grishaev.me/clj-repl-part-4/#nrepl-в-docker</a>.
+Following it:</p>
+<p><em>project.clj:</em></p>
+<pre class="clj"><code>(defproject patient &quot;0.1.0-SNAPSHOT&quot;
+  ;; ...
+  :profiles
+  {:docker
+    {:repl-options {:port 9911
+                :host &quot;0.0.0.0&quot;}
+    :plugins [[cider/cider-nrepl &quot;0.50.2&quot;]]}})</code></pre>
+<p><em>docker-compose.yml:</em></p>
+<pre class="yml"><code>services:
+    app:
+        command: [&quot;lein&quot;, &quot;with-profile&quot;, &quot;+docker&quot;, &quot;repl&quot;, &quot;:headless&quot;]</code></pre>
+<p>Restart our docker image and try to connect from emacs:</p>
+<pre><code>M-x cider-connect RET 127.0.0.1 RET 9911 RET</code></pre>
+<p><img src="../assets/clojure-simple-web-app/repl-emacs-test.png"
+alt="nRepl works!" /></p>
+<p>Great! It would also be nice not to type this line every time we need
+the <code>REPL</code>, but we'll deal with that later.</p>
+<h2 id="implementation">Implementation</h2>
+<p>Well, since I'm going to write everything in Clojure and
+ClojureScript, it'll be easier if I solve the tasks gradually. I don't
+yet know how to write the front or the back. I want to start with the
+back because it's more familiar to me (and nothing will work without it
+anyway :D).</p>
+<p>If you search for how to make a web service in Clojure you can find
+both implementation <a
+href="https://github.com/chris-emerson/rest_demo">examples</a> (though
+it would be nice to have a description of what's what there) and <a
+href="https://github.com/metosin/reitit">libraries</a> that do a lot for
+you.</p>
+<p>I'd like to assemble everything myself, so I'll peek at the examples
+but won't use libraries that already do everything, in order to, so to
+speak, better feel what it's like.</p>
+<h3 id="backend">Backend</h3>
+<h4 id="minimal-app">Minimal app</h4>
+<p>A short search led me to a page <a
+href="https://grishaev.me/clj-book-web-1/">"Introduction to web
+development in Clojure"</a>. Last time an <a
+href="https://grishaev.me/clj-repl-part-1/">article</a> by this author
+already helped me when I was making multiline input for my <a
+href="https://github.com/4irik/lisphp">REPL</a> (actually I got the idea
+to make it from there too). After skimming the article I decided I'd
+follow it.</p>
+<p>Let's write the initial implementation of the application:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>;; ...
+
+(defn app
+  [request]
+  (let [{:keys [uri request-method]} request]
+    {:status 200
+     :headers {&quot;Content-Type&quot; &quot;text/plain&quot;}
+     :body (format &quot;You requested %s %s&quot;
+                   (name request-method)
+                   uri)}))</code></pre>
+<p>To check how this function works I need to compile it, for that I put
+the cursor on the last parenthesis and press <code>C-x C-e</code>, then
+I switch to the <code>REPL</code> (<code>C-c C-z</code>) and call
+it:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (app {:request-method :get :uri &quot;/index.html&quot;})
+{:status 200,
+ :headers {&quot;Content-Type&quot; &quot;text/plain&quot;},
+ :body &quot;You requested get /index.html&quot;}</code></pre>
+<p>Everything works. Moving on.</p>
+<h4 id="web-server">Web server</h4>
+<p>Let's add two packages to the dependencies:</p>
+<p><em>project.clj:</em></p>
+<pre class="clj"><code>;; ...
+:dependencies [[org.clojure/clojure &quot;1.12.0&quot;]
+               ;; base web-app
+               [ring/ring-core &quot;1.12.2&quot;]
+               ;; web-server
+               [ring/ring-jetty-adapter &quot;1.12.2&quot;]
+               ]</code></pre>
+<p>To download them we need to run <code>lein deps</code>. Let's add
+this command to the <code>Makefile</code> right away:</p>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>deps: ## Upload dependencies
+    docker compose exec app lein deps</code></pre>
+<p>Let's make the server start when our application is launched via
+<code>lein</code>.</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>;; ...
+
+(require &#39;[ring.adapter.jetty :refer [run-jetty]])
+
+;; ...
+
+(defn -main
+  [&amp; args]
+  (run-jetty app {:port 8080 :join? true}))</code></pre>
+<p>let's forward port <code>8080</code> from docker to the outside:</p>
+<p><em>docker-compose.yml:</em></p>
+<pre class="yml"><code>services:
+    app:
+        # ...      
+        ports:
+            - 9911:9911
+            - 8080:8080</code></pre>
+<p>and run our application:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ make restart &amp;&amp; make run
+Retrieving org/apache/commons/commons-parent/52/commons-parent-52.pom from central
+Retrieving org/eclipse/jetty/jetty-project/11.0.21/jetty-project-11.0.21.pom from central
+Retrieving com/fasterxml/jackson/jackson-bom/2.17.0/jackson-bom-2.17.0.pom from central
+...
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.</code></pre>
+<p>No errors, and if we go to <code>http://127.0.0.1:8080</code> we'll
+see:</p>
+<pre class="text"><code>You requested get /</code></pre>
+<p>Here you can see that the <code>app</code> function worked returning
+the request method and URL.</p>
+<p><strong>A small digression into infrastructure:</strong></p>
+<p>Everything works, but right now, since I'm on mobile internet,
+something else matters more to me: stuff keeps downloading and it
+naturally lands in a directory inside the docker image whose changes
+don't persist between runs. This way we'll be downloading everything
+every time. Something has to be done. In <a
+href="https://grishaev.me/clj-repl-part-4/#nrepl-в-docker">the same
+article</a> there are two whole solutions:</p>
+<ol type="1">
+<li>forward <code>/root/.m2</code> to the outside</li>
+<li>add the <code>:local-repo</code> parameter to the
+<code>:docker</code> profile</li>
+</ol>
+<p>If we go the second route then everything will always have to be run
+with that profile specified, otherwise everything that gets downloaded
+will end up inside the docker container. The first route frees us from
+having to remember run parameters for anything. We choose it.</p>
+<p><em>docker-compose.yml:</em></p>
+<pre class="yml"><code>services:
+    app:
+        # ...
+        volumes:
+            - ./:/app
+            - ./.m2:/root/.m2</code></pre>
+<p><em>Now back to our web application</em></p>
+<h4 id="routing">Routing</h4>
+<p>Now that something works, it's time to think about routing. In the
+same article the author describes two options:</p>
+<ol type="1">
+<li>Compojure</li>
+<li>Bidi</li>
+</ol>
+<p>And a bit below writes:</p>
+<blockquote>
+<p>Subjectively, Compojure is easier to start with. The library has
+decent documentation with examples.</p>
+</blockquote>
+<p>That's enough for me. I choose Compojure.</p>
+<p><em>project.clj:</em></p>
+<pre class="clj"><code>(defproject patient &quot;0.1.0-SNAPSHOT&quot;
+  ;; ...
+  :dependencies [
+                  ;; ...
+                  [compojure &quot;1.7.1&quot;]
+                ]
+  ;; ...</code></pre>
+<p>I already have a command in the Makefile for installing dependencies,
+so I don't need to get inside the container itself, it's enough to send
+<code>make deps</code> to the shell.</p>
+<p>Let's write basic routes for our application. Since we have CRUD, for
+working with patient data we need:</p>
+<ol type="1">
+<li>[ ] - GET - to view the list of records</li>
+<li>[ ] - POST - to create a record</li>
+<li>[ ] - GET - to view a record</li>
+<li>[ ] - PATCH - to make edits</li>
+<li>[ ] - DELETE - to delete</li>
+</ol>
+<p><em>I split access to different functionality by HTTP requests to
+make it easier to grasp what each request does. Later I might change
+this.</em></p>
+<p>Let's write stub functions for these methods:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-list
+  [request]
+    {:status 200
+    :headers {&quot;content-type&quot; &quot;text/plain&quot;}
+    :body &quot;list of patients&quot;})
+
+(defn patient-view
+  [request]
+    {:status 200
+    :headers {&quot;content-type&quot; &quot;text/plain&quot;}
+    :body &quot;view patient data&quot;})
+
+;; ...</code></pre>
+<p>Now, before we go too far, let's make life a bit simpler. Each
+function returns the same structure:</p>
+<pre class="clj"><code>{
+  :status 200
+  :headers {&quot;content-type&quot; &quot;text/plain&quot;}
+  :body &quot;some string&quot;
+}</code></pre>
+<p>in which only the value of the <code>:body</code> keyword differs.
+Let's make a helper function:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn make-response
+  [response-string]
+   {:status 200
+   :headers {&quot;content-type&quot; &quot;text/plain&quot;}
+   :body response-string})
+
+(defn patient-list
+  [request]
+  (make-response &quot;list of patients&quot;))
+
+(defn patient-view
+  [request]
+  (make-response &quot;view patient data&quot;))
+
+;;...</code></pre>
+<p>Let's check it right away:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (make-response 123)
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body 123}
+patient.core&gt; (patient-list [])
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;list of patients&quot;}</code></pre>
+<p>Compojure provides the <code>defroutes</code> macro for writing
+routes, you can write without it but it'll be a bit longer (an example
+with and without the macro can be found in the <a
+href="https://github.com/weavejester/compojure/wiki/Routes-In-Detail#combining-routes">documentation</a>).
+Let's describe our routes:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>;;...
+(require &#39;[compojure.core :refer [GET POST PATCH DELETE defroutes]])
+
+;; ...
+
+(defroutes app
+  (GET &quot;/&quot;      request (patient-list request))
+  (GET &quot;/patient/:id&quot; request (patient-view request))
+  (POST &quot;/patient&quot; request (patient-create request))
+  (PATCH &quot;/patient/:id&quot; request (patient-update request))
+  (DELETE &quot;/patient/:id&quot; request (patient-delete request))
+  page-404)</code></pre>
+<p>Hmm.. we have a group of routes here, the ones starting with
+<code>/patient</code>, we can combine them:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>;; ...
+;; the `context` macro is added at the end
+(require &#39;[compojure.core :refer [GET POST PATCH DELETE defroutes context]]) 
+
+;; ...
+
+(defroutes app
+  (GET &quot;/&quot;      request (patient-list request))
+  (context &quot;/patient&quot; []
+           (POST &quot;/&quot; request (patient-create request))
+           (context &quot;/:id{[0-9]+}&quot; [id]
+                    (GET &quot;/&quot; request (patient-view request))
+                    (PATCH &quot;/&quot; request (patient-update request))
+                    (DELETE &quot;/&quot; request (patient-delete request))
+                    )
+           )
+  page-404)</code></pre>
+<p>here, as you can see, one more macro was added -
+<code>context</code>, and also, I specified that <code>id</code> is only
+digits and it will be available in the nested routes under the
+<code>:id</code> keyword. By the way, let's output this very
+<code>:id</code> in the route responses:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-view
+  [request]
+  (when-let [user-id (-&gt; request :params :id)]
+  (make-response (format &quot;view patient #%s data&quot; user-id))))
+
+;; ...</code></pre>
+<p>Let's check:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl http://127.0.0.1:8080/patient/1
+view patient #1 data
+$ curl --request POST http://127.0.0.1:8080/patient
+new patient created</code></pre>
+<p>As you can see, I used the <code>%s</code> template instead of
+<code>%d</code>, that's because the <code>:id</code> parameter is an
+object of class <code>String</code>, later I think I'll come back to
+this and change it to <code>Integer</code> class.</p>
+<p>So, right now we have:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />routes for patient
+CRUD</label></li>
+<li><label><input type="checkbox" checked="" />patient <code>ID</code>
+substitution in routes</label></li>
+<li><label><input type="checkbox" checked="" />route to show the patient
+list</label></li>
+<li><label><input type="checkbox" checked="" />404 handling</label></li>
+<li><label><input type="checkbox" />route to search
+patients</label></li>
+<li><label><input type="checkbox" />list/search pagination</label></li>
+<li><label><input type="checkbox" />HATEOAS</label></li>
+</ul>
+<p>I'll leave the remaining two items for now, same as I'll postpone the
+HATEOAS work (here I'm already thinking it will be a REST application
+after all).</p>
+<h4 id="data-storage-first-approach">Data storage. First approach</h4>
+<p>So. We need to store data somehow. The task specifies PostgreSql and
+I even added it to docker-compose.yml already, but I'm not ready to dive
+headfirst into working with it yet. For now I want to make a stub that
+keeps everything in memory.</p>
+<p>What I want to end up with:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" />getting all records (?)</label></li>
+<li><label><input type="checkbox" />pagination</label></li>
+<li><label><input type="checkbox" />searching records (?)</label></li>
+<li><label><input type="checkbox" />adding a new record</label></li>
+<li><label><input type="checkbox" />deleting a record</label></li>
+<li><label><input type="checkbox" />getting a specific
+record</label></li>
+<li><label><input type="checkbox" />updating a record</label></li>
+</ul>
+<p><em>I put a question mark in parentheses next to the items I'm not
+sure need doing or don't yet know what form I want them in.</em></p>
+<p>Found an <a
+href="https://adambard.com/blog/diy-nosql-in-clojure/">article</a>
+describing how to make yourself a store <del>out of sh</del> with
+improvised means.</p>
+<h5 id="adding-a-new-record">Adding a new record</h5>
+<p>For now I'll do it by analogy without trying to figure out what's
+what:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(ns patient.data)
+
+;; &quot;Tables&quot;
+(def patients (atom []))
+
+;; &quot;Schema&quot;
+(def patient-keys [:fio :sex :date-of-birth :address :oms-number])
+
+(defn get-patients
+  []
+  @patients)
+
+(defn get-patient
+  [id]
+  (nth @patients id))
+
+(defn put-patient!
+  [patient]
+  (swap! patients (conj patients patient)))</code></pre>
+<p>Let's try this thing right away:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (ns patient.data)
+nil
+patient.data&gt; (get-patients)
+[]
+patient.data&gt; (put-patient! {:fio &quot;Иванов И.И&quot; :sex true :date-of-birth &quot;10.10.1910&quot; :address &quot;Some address 11&quot; :oms-number &quot;11223344&quot;})
+Execution error (ClassCastException) at patient.data/put-patient! (form-init12253400653348000048.clj:19).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader &#39;app&#39;)</code></pre>
+<p>Well, the <code>get-patients</code> function works, but insertion is
+still a problem. Let's read what the original post does on
+insertion:</p>
+<pre class="clj"><code>(def MAX-TWITS 5)
+
+(def twits (atom []))
+
+(def twit-keys [:name :message :timestamp])
+(defn clean-twit [twit]
+  (-&gt; twit
+    (select-keys twit-keys)
+    (assoc :timestamp (System/currentTimeMillis))))
+
+(defn put-twit! [twit]
+    (swap! twits #(take MAX-TWITS (conj % (clean-twit twit)))))</code></pre>
+<p>OK. Let's make some guesses:</p>
+<ul>
+<li><code>take</code> takes only <code>MAX-TWITS</code> from the whole
+set</li>
+<li><code>conj</code> - adds a record to the end of the vector</li>
+<li><code>clean-twit</code> - adds the current time in milliseconds to
+the twit</li>
+<li><code>swap!</code> - updates the <code>twits</code> vector</li>
+</ul>
+<p>now let's write out the unclear things:</p>
+<ul>
+<li><code>conj % ...</code> - why not <code>twits</code> here and what
+does <code>%</code> mean?</li>
+<li><code>#(take ...</code> - no idea what this notation means.</li>
+</ul>
+<p>I tried to find what <code>%</code> is, but the answer was in the
+answer to another question - what is <code>#(...</code>. So:</p>
+<ul>
+<li><code>#(take ...</code> - a special shorthand for an anonymous
+function, you could write <code>(fn [arg ] ...)</code></li>
+<li><code>%</code> - parameter substitution in the shorthand anonymous
+function form; if there were several parameters they'd be denoted by
+digits - <code>%1</code> <code>%2</code> etc.</li>
+</ul>
+<p>So <code>#(take...)</code> is an anonymous function that takes 1
+argument and its result is substituted into <code>twits</code>. But
+where does it get its argument? Let's read what <a
+href="https://clojuredocs.org/clojure.core/swap!">they write</a> about
+<code>swap!</code>:</p>
+<blockquote>
+<p>(swap! atom f)</p>
+<p>Atomically swaps the value of atom to be: (apply f
+current-value-of-atom args).</p>
+</blockquote>
+<p>I.e. our anonymous function will be applied to the atom's value.
+There's the answer.</p>
+<p>OK, let's try to rewrite the <code>put-patient!</code> function:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn put-patient!
+  [patient]
+  (swap! patients #(conj % patient)))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (put-patient! {:fio &quot;Иванов И.И&quot; :sex true :date-of-birth &quot;10.10.1910&quot; :address &quot;Some address 11&quot; :oms-number &quot;11223344&quot;})
+[{:fio &quot;Иванов И.И&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;Some address 11&quot;,
+  :oms-number &quot;11223344&quot;}]</code></pre>
+<p>It works! Though I still don't get why
+<code>(conj patients patient)</code> doesn't work and
+<code>(conj % patient)</code> does what's needed; for now I'll assume
+<code>%</code> is <code>current-value-of-atom</code>, i.e. not the atom
+itself but the value contained in it. By the way, how can we check
+that?</p>
+<p>I found the <code>defer</code> construct (has a shorthand form -
+<code>@</code>) that returns the atom's value. Let's check:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (conj patients {:test &quot;test&quot;})
+Execution error (ClassCastException) at patient.data/eval12859 (form-init12253400653348000048.clj:92).
+class clojure.lang.Atom cannot be cast to class clojure.lang.IPersistentCollection (clojure.lang.Atom and clojure.lang.IPersistentCollection are in unnamed module of loader &#39;app&#39;)
+patient.data&gt; (conj @patients {:test &quot;test&quot;})
+[{:fio &quot;Иванов И.И&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;Some address 11&quot;,
+  :oms-number &quot;11223344&quot;}
+ {:test &quot;test&quot;}]</code></pre>
+<p>Well, the guess turned out right. But if we look at the examples in
+the docs, it seems it can be made even simpler:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (swap! patients conj {:test &quot;test&quot;})
+[{:fio &quot;Иванов И.И&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;Some address 11&quot;,
+  :oms-number &quot;11223344&quot;}
+ {:test &quot;test&quot;}]</code></pre>
+<p>Let's write it that way in our function for adding new records:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn put-patient!
+  [patient]
+  (swap! patients conj patient))</code></pre>
+<h5 id="deleting-a-record">Deleting a record</h5>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn del-patient!
+  [id]
+  (swap! patients ???))</code></pre>
+<p>So what can we do here? First thought - <code>filter</code>, but it
+only works with values, and I have an index in a vector. Found a
+solution on <a
+href="https://stackoverflow.com/questions/1394991/clojure-remove-item-from-vector-at-a-specified-location">StackOverflow</a>
+- use <code>subvec</code> and <code>concat</code>! Let's try, first in
+general form:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (def m [0 1 2 3 4 5 6 7 8 9])
+#&#39;patient.data/m
+patient.data&gt; (#(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) m 2)
+(0 1 3 4 5 6 7 8 9)</code></pre>
+<p>Works, let's move it into the file:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn del-patient!
+ [id]
+ (swap! patients #(vec (concat (subvec %1 0 %2) (subvec %1 (+ 1 %2)))) id))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>;; let&#39;s see what we already have stored
+patient.data&gt; (get-patients)
+[{:fio &quot;Иванов И.И&quot;,
+ :sex true,
+ :date-of-birth &quot;10.10.1910&quot;,
+ :address &quot;Some address 11&quot;,
+ :oms-number &quot;11223344&quot;}
+{:test &quot;test&quot;}
+{:fio &quot;Петров П.П&quot;,
+ :sex true,
+ :date-of-birth &quot;11.11.1911&quot;,
+ :address &quot;Some address 222&quot;,
+ :oms-number &quot;22334455&quot;}]
+;; delete the record at index `1`
+patient.data&gt; (del-patient! 1)
+[{:fio &quot;Иванов И.И&quot;,
+ :sex true,
+ :date-of-birth &quot;10.10.1910&quot;,
+ :address &quot;Some address 11&quot;,
+ :oms-number &quot;11223344&quot;}
+{:fio &quot;Петров П.П&quot;,
+ :sex true,
+ :date-of-birth &quot;11.11.1911&quot;,
+ :address &quot;Some address 222&quot;,
+ :oms-number &quot;22334455&quot;}]
+;; the `{:test &quot;test&quot;}` record is gone</code></pre>
+<p><em>A problem is emerging here: if I delete a record, the next one
+takes its place, this will create problems when we delete records
+through the web application because the client won't know that
+<strong>the record identifiers have changed</strong>, or we'll have to
+send it new identifiers every time.</em></p>
+<p>Let's leave it for now, we'll come back when we finish all the CRUD
+operations. <em>It feels like this solution will create more work for me
+later, but I really want to move forward at least a little.</em></p>
+<h5 id="updating-a-record">Updating a record</h5>
+<p>It seems that updating a record is very similar to deleting, except
+that instead of the deleted element we need to substitute a new one:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn upd-patient!
+  [id patient]
+  (swap! patients #(vec (concat (subvec %1 0 %2) [%3] (subvec %1 (+ 1 %2)))) id patient))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>;; replace the address of patient number 2
+patient.data&gt; (upd-patient! 1 {:fio &quot;Петров П.П.&quot; :sex true :date-of-birth &quot;11.11.1911&quot; :address &quot;new some address 333&quot; :oms-number &quot;22334455&quot;})
+[{:fio &quot;Иванов И.И&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;Some address 11&quot;,
+  :oms-number &quot;11223344&quot;}
+ {:fio &quot;Петров П.П.&quot;,
+  :sex true,
+  :date-of-birth &quot;11.11.1911&quot;,
+  :address &quot;new some address 333&quot;,
+  :oms-number &quot;22334455&quot;}]</code></pre>
+<p>Works, but there are two things I don't like:</p>
+<ol type="1">
+<li>you have to specify the patient index (a related problem was already
+highlighted in the previous paragraph)</li>
+<li>you have to send the full dataset</li>
+</ol>
+<p>Let's try, for now, to deal with problem #2.</p>
+<p>The <code>assoc</code> construct(?) allows changing a value in a
+map:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn change-patient-one-value!
+  &quot;Changes a single value in a patient record&quot;
+  [item key new-value]
+  (assoc item key new-value))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (change-patient-one-value! {:test &quot;test&quot;} :test &quot;new value&quot;)
+{:test &quot;new value&quot;}</code></pre>
+<p>Next, it seems we can take a map of changes as input and, by reducing
+it, update the patient data:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn change-patient-values!
+  &quot;Changes values in a patient record&quot;
+  [patient new-values-map]
+  (reduce
+   #(let [key (%2 0) val (%2 1)] (change-patient-one-value! %1 key val))
+   patient
+   (seq new-values-map)))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (change-patient-values! {:t1 &quot;test 1&quot; :t2 &quot;test 2&quot; :t3 &quot;test 3&quot;} {:t1 &quot;new test 1&quot; :t3 &quot;new test 3&quot;})
+{:t1 &quot;new test 1&quot;, :t2 &quot;test 2&quot;, :t3 &quot;new test 3&quot;}</code></pre>
+<p>All that's left is to assemble this in one place:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn upd-patient!
+  &quot;Updates patient data (only updated fields can be passed)&quot;
+  [id new-data-of-patient]
+  (swap!
+   patients
+   #(vec
+     (concat
+      (subvec %1 0 %2)
+      [(change-patient-values! %3 %4)]
+      (subvec %1 (+ 1 %2))))
+   id
+   (@patients id)
+   new-data-of-patient))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (upd-patient! 1 {:oms-number &quot;556677&quot;})
+[{:fio &quot;Иванов И.И&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;Some address 11&quot;,
+  :oms-number &quot;11223344&quot;}
+ {:fio &quot;Петров П.П.&quot;,
+  :sex true,
+  :date-of-birth &quot;11.11.1911&quot;,
+  :address &quot;new some address 333&quot;,
+  :oms-number &quot;556677&quot;}]</code></pre>
+<h5 id="getting-data-for-a-specific-record">Getting data for a specific
+record</h5>
+<p>I already made this method, copying it from the article I mentioned
+at the beginning:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn get-patient
+  [id]
+  (nth @patients id))</code></pre>
+<p>but back then I didn't understand how it works. Now, already knowing
+about atoms and <code>defer</code>, the only thing I don't know is what
+<code>nth</code> does. Let's look at the <a
+href="https://clojuredocs.org/clojure.core/nth">documentation</a>:</p>
+<blockquote>
+<p>Returns the value at the index. get returns nil if index out of
+bounds, nth throws an exception unless not-found is supplied.</p>
+</blockquote>
+<p>i.e. if I specify an index not in the vector I'll get an exception.
+Seems like that's what's needed, I don't yet know how I'll handle it but
+I'd like to know when something goes wrong.</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (get-patient 0)
+{:fio &quot;Иванов И.И&quot;,
+ :sex true,
+ :date-of-birth &quot;10.10.1910&quot;,
+ :address &quot;Some address 11&quot;,
+ :oms-number &quot;11223344&quot;}
+patient.data&gt; (get-patient 2)
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (form-init12253400653348000048.clj:15).
+null</code></pre>
+<h5 id="wrapping-up">Wrapping up</h5>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />getting all records
+(?)</label></li>
+<li><label><input type="checkbox" />pagination</label></li>
+<li><label><input type="checkbox" />searching records (?)</label></li>
+<li><label><input type="checkbox" checked="" />adding a new
+record</label></li>
+<li><label><input type="checkbox" checked="" />deleting a
+record</label></li>
+<li><label><input type="checkbox" checked="" />getting a specific
+record</label></li>
+<li><label><input type="checkbox" checked="" />updating a
+record</label></li>
+</ul>
+<p>Almost everything from the plan is done. I'll leave the remaining two
+items for now, I want the application to work in some form already.</p>
+<h4 id="minimal-app-adding-data-storage">Minimal app: adding data
+storage.</h4>
+<p>Let's start with adding a new record, then I think we'll check how
+listing all patients and a specific patient's data works, then we'll get
+to updating and deleting records. Let's write a list to check against at
+the end:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" />adding a new patient</label></li>
+<li><label><input type="checkbox" />getting the patient
+list</label></li>
+<li><label><input type="checkbox" />patient list pagination</label></li>
+<li><label><input type="checkbox" />patient search</label></li>
+<li><label><input type="checkbox" />getting patient data</label></li>
+<li><label><input type="checkbox" />updating patient data</label></li>
+<li><label><input type="checkbox" />deleting patient data</label></li>
+</ul>
+<h5 id="adding">Adding</h5>
+<p>So, first of all, I'd like to see that data arrives. For that we need
+to take data from the request <code>body</code>, as always StackOverflow
+comes to the rescue, we'll use <code>slurp</code> to <a
+href="https://stackoverflow.com/a/68544475">turn a stream into a
+string</a>:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-create
+  [request]
+  (make-response (slurp (:body request))))</code></pre>
+<p>And on the <code>slurp</code> documentation page I found a <a
+href="https://clojuredocs.org/clojure.core/slurp#example-588dd268e4b01f4add58fe33">hint</a>
+on how to check all this in the REPL:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:test 123&quot;)})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;:test 123&quot;}</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl --request POST http://127.0.0.1:8080/patient --data &quot;:fio \&quot;Сидоров С.С.\&quot; :sex true :date-of-birth \&quot;01.01.1901\&quot; :address \&quot;sidorov s.s. address 1\&quot; :oms-number \&quot;778899\&quot;&quot;
+:fio &quot;Сидоров С.С.&quot; :sex true :date-of-birth &quot;01.01.1901&quot; :address &quot;sidorov s.s. address 1&quot; :oms-number &quot;778899&quot;</code></pre>
+<p>Great!</p>
+<p>Now we need to turn this string into a map. Luckily, the answer <a
+href="https://stackoverflow.com/a/35707024">was quickly found</a>:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (clojure.edn/read-string &quot;{:a 1 :b 2}&quot;)
+{:a 1, :b 2}</code></pre>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(require &#39;[patient.data :as db])
+
+;; ...
+
+(defn patient-create
+  [request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str &quot;{&quot; patient-raw &quot;}&quot;))]
+    (db/put-patient! patient-map))
+  (make-response nil))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:test 123&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl -D - --request POST http://127.0.0.1:8080/patient --data &quot;:fio \&quot;Сидоров С.С.\&quot; :sex true :date-of-birth \&quot;01.01.1901\&quot; :address \&quot;sidorov s.s. address 1\&quot; :oms-number \&quot;778899\&quot;&quot;
+HTTP/1.1 200 OK
+Date: Wed, 16 Oct 2024 10:36:01 GMT
+Content-Type: text/plain
+Content-Length: 0
+Server: Jetty(11.0.21)</code></pre>
+<h5 id="list-of-all-patients">List of all patients</h5>
+<p>Seems like we just need to get all patients' data and output it in
+some form:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-list
+  [request]
+  (make-response (db/get-patients)))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:test 123&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:test 222&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:test 333&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+patient.core&gt; (patient-list [])
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body [{:test 123} {:test 222} {:test 333}]}</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl http://127.0.0.1:8080
+&lt;html&gt;
+&lt;head&gt;
+&lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html;charset=ISO-8859-1&quot;/&gt;
+&lt;title&gt;Error 500 java.lang.IllegalArgumentException: No implementation of method: :write-body-to-stream of protocol: #&amp;apos;ring.core.protocols/StreamableResponseBody found for class: clojure.lang.PersistentVector&lt;/title&gt;</code></pre>
+<p>Looks like we need to turn the vector of maps into a string:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (str [{:test 123} {:test 222} {:test 333}])
+&quot;[{:test 123} {:test 222} {:test 333}]&quot;</code></pre>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-list
+  [request]
+  (make-response (str db/get-patients)))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-list [])
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;patient.data$get_patients@185b5398&quot;}</code></pre>
+<p>Hmm... that came out a bit different from what I expected, probably
+because I passed not the function's result to <code>str</code> but the
+function itself.</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-list
+  [request]
+  (make-response (str (db/get-patients))))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-list [])
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;[{:test 123} {:test 222} {:test 333}]&quot;}</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl --request POST http://127.0.0.1:8080/patient --data &quot;:fio \&quot;Сидоров С.С.\&quot; :sex true :^Cte-of-birth \&quot;01.01.1901\&quot; :address \&quot;sidorov s.s. address 1\&quot; :oms-n
+umber \&quot;778899\&quot;&quot;
+$ curl --request POST http://127.0.0.1:8080/patient --data &quot;:fio \&quot;Петров П.П.\&quot; :sex true :date-of-birth \&quot;10.10.1910\&quot; :address \&quot;petrov p.p. address 1\&quot; :oms-number \&quot;112233\&quot;&quot;
+$ curl http://127.0.0.1:8080
+[{:fio &quot;Сидоров С.С.&quot;, :sex true, :date-of-birth &quot;01.01.1901&quot;, :address &quot;sidorov s.s. address 1&quot;, :oms-number &quot;778899&quot;} {:fio &quot;Петров П.П.&quot;, :sex true, :date-of-birth &quot;10.10.1910&quot;, :address &quot;petrov p.p. address 1&quot;, :oms-number &quot;112233&quot;}]</code></pre>
+<p>OK. The patient list exists in some form already.</p>
+<h5 id="getting-a-specific-patients-data">Getting a specific patient's
+data</h5>
+<p>Here we act by analogy with the previous point:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-view
+  [request]
+  (let [patient-id (-&gt; request :params :id)]
+    (let [patient (db/get-patient patient-id)]
+      (if patient
+        (make-response (str patient))
+        (page-404 [])))))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-view {:params {:id 2}})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;{:test 333}&quot;}
+patient.core&gt; (patient-view {:params {:id 3}})
+Execution error (IndexOutOfBoundsException) at patient.data/get-patient (data.clj:17).
+null</code></pre>
+<p>OK, I don't like that instead of 404 I see an exception. In the
+previous chapter I specifically made the store throw an exception if the
+record isn't found; back then it seemed that during development it would
+be convenient to get an exception if data isn't found. I decided so
+because I wasn't sure I could tell where my <code>nil</code> came from:
+because I did something wrong or because the data isn't in the store.
+Now I really don't want to write exception handling for a case that can
+occur often. Let's rework the store so it returns <code>nil</code> if
+nothing is found:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn get-patient
+  &quot;Returns a patient record by its ID&quot;
+  [id]
+  (get @patients id))</code></pre>
+<p>Now everything should be fine:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-view {:params {:id 1}})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;{:test 222}&quot;}
+patient.core&gt; (patient-view {:params {:id 11}})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;No such a page.&quot;}</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl http://127.0.0.1:8080/patient/1
+No such a page.</code></pre>
+<p>Hmm, that's odd. But if you think about it:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-view {:params {:id &quot;1&quot;}})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;No such a page.&quot;}</code></pre>
+<p>somewhere above I already wrote that <code>:id</code> is an object of
+class <code>String</code>, and now the time has come to convert it to
+<code>Integer</code>.</p>
+<p>Compojure has this thing - <a
+href="https://github.com/weavejester/compojure/wiki/Destructuring-Syntax#parameter-coercion">parameter
+coercion</a>:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>;; ...
+
+(require &#39;[compojure.coercions :refer [as-int]])
+
+;; ...
+
+(defn patient-view
+  [id]
+  (let [patient (db/get-patient id)]
+    (if patient
+      (make-response (str patient))
+      (page-404 []))))
+
+;; ...
+
+(defroutes app
+;; ...
+           (context &quot;/:id{[0-9]+}&quot; [id :&lt;&lt; as-int]
+                    (GET &quot;/&quot; [] (patient-view id))
+;; ...</code></pre>
+<p>Here I did two things at once:</p>
+<ol type="1">
+<li>Passed only the parameters it needs to
+<code>patient-view</code></li>
+<li>Converted <code>id</code> to <code>Integer</code> right in the
+route</li>
+</ol>
+<p>in both cases the changes made in the route helped unload the target
+function, freeing it from doing things not directly related to its
+purpose.</p>
+<p><em>Initially in the route I wrote
+<code>(GET "/" id (patient-view id))</code>, but instead of the
+identifier a map containing the request header was passed. Haven't
+figured out why yet.</em></p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ curl http://127.0.0.1:8080/patient/1
+{:fio &quot;Петров П.П.&quot;, :sex true, :date-of-birth &quot;10.10.1910&quot;, :address &quot;petrov p.p. address 1&quot;, :oms-number &quot;112233&quot;}</code></pre>
+<h5 id="updating-data">Updating data</h5>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-update
+  [id request]
+  (let
+      [patient-raw (slurp (:body request))
+       patient-map (clojure.edn/read-string (str &quot;{&quot; patient-raw &quot;}&quot;))]
+    (db/upd-patient! id patient-map))
+  (make-response nil))
+
+;; ...
+
+(defroutes app
+;; ...
+                    (PATCH &quot;/&quot; request (patient-update id request))
+;; ...</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>;; add a patient
+patient.core&gt; (patient-create {:body (into-array Byte/TYPE &quot;:fio \&quot;Sidorov\&quot; :address \&quot;sidorov s.s. address 1\&quot;&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+;; check it was added
+patient.core&gt; (patient-view 0)
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body
+ &quot;{:fio \&quot;Sidorov\&quot;, :address \&quot;sidorov s.s. address 1\&quot;}&quot;}
+;; change the address
+patient.core&gt; (patient-update 0 {:body (into-array Byte/TYPE &quot;:address \&quot;sidorov address 2\&quot;&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+;; see if the address changed
+patient.core&gt; (patient-view 0)
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body
+ &quot;{:fio \&quot;Sidorov\&quot;, :address \&quot;sidorov address 2\&quot;}&quot;}</code></pre>
+<p>Works, but a question arises here - "What if the specified record
+doesn't exist?".</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.core&gt; (patient-update 10 {:body (into-array Byte/TYPE &quot;:address \&quot;sidorov address 3\&quot;&quot;)})
+Execution error (IndexOutOfBoundsException) at patient.data/upd-patient! (data.clj:53).
+null</code></pre>
+<p>Could have looked into the code:</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn upd-patient!
+  ;; ...
+   (@patients id)
+  ;; ...</code></pre>
+<p>And right away a second one - "How will PgSql behave in this case?".
+Let's answer it:</p>
+<p><em>shell:</em></p>
+<pre class="sql"><code>patient_db=# CREATE TABLE test_table (id serial primary key, data text not null);
+CREATE TABLE
+patient_db=# INSERT INTO test_table (&quot;data&quot;) VALUES (&#39;some value 1&#39;), (&#39;some value 2&#39;), (&#39;some value 3&#39;);
+INSERT 0 3
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  1 | some value 1
+  2 | some value 2
+  3 | some value 3
+(3 rows)
+
+patient_db=# UPDATE test_table SET data=&#39;111&#39; WHERE id=1;
+UPDATE 1
+patient_db=# UPDATE test_table SET data=&#39;111&#39; WHERE id=100;
+UPDATE 0
+patient_db=# SELECT * FROM test_table;
+ id |     data
+----+--------------
+  2 | some value 2
+  3 | some value 3
+  1 | 111
+(3 rows)</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Behind the scenes I added a line to the <code>Makefile</code>:</p>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>psql: ## PostgreSql shell
+  docker compose exec db psql -U postgres -d patient_db</code></pre>
+</div>
+<p>So you can see nothing terrible happens, the DBMS just returns the
+number of changed records.</p>
+<p>Since I assume my storage layer is somehow tied to the domain being
+modeled, I won't return the number of changed records, but a flag of
+whether the record was updated or not. Both flag values don't indicate
+an error, they're both normal; if there's an error, an exception should
+be thrown.</p>
+<p><em>data.clj:</em></p>
+<pre class="clj"><code>(defn upd-patient!
+  &quot;Updates patient data (only fields to update can be passed)&quot;
+  [id new-data-of-patient]
+  (def patient (get-patient id))
+  (if (= nil patient)
+    false
+    (do
+      (swap!
+       patients
+       #(vec
+         (concat
+          (subvec %1 0 %2)
+          [(change-patient-values! %3 %4)]
+          (subvec %1 (+ 1 %2))))
+       id
+       patient
+       new-data-of-patient)
+      true)))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; @patients
+[{:fio &quot;Sidorov&quot;,
+  :sex true,
+  :date-of-birth &quot;01.01.1901&quot;,
+  :address &quot;sidorov address 2&quot;,
+  :oms-number &quot;778899&quot;}
+ {:fio &quot;Petrov&quot;,
+  :sex true,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;sidorov address 3&quot;,
+  :oms-number &quot;112233&quot;}]
+patient.data&gt; (upd-patient! 3 {:sex false})
+false
+patient.data&gt; (upd-patient! 1 {:sex false})
+true
+patient.data&gt; @patients
+[{:fio &quot;Sidorov&quot;,
+  :sex true,
+  :date-of-birth &quot;01.01.1901&quot;,
+  :address &quot;sidorov address 2&quot;,
+  :oms-number &quot;778899&quot;}
+ {:fio &quot;Petrov&quot;,
+  :sex false,
+  :date-of-birth &quot;10.10.1910&quot;,
+  :address &quot;sidorov address 3&quot;,
+  :oms-number &quot;112233&quot;}]</code></pre>
+<p>As you can see, everything updates.</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str &quot;{&quot; patient-raw &quot;}&quot;)))
+  (if (db/upd-patient! id patient-map)
+    (make-response nil)
+    (page-404 [])))</code></pre>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>;; look at the patient&#39;s data
+patient.core&gt; (patient-view 0)
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body
+ &quot;{:fio \&quot;Sidorov\&quot;, :sex true, :date-of-birth \&quot;01.01.1901\&quot;, :address \&quot;sidorov address 2\&quot;, :oms-number \&quot;778899\&quot;}&quot;}
+;; change the sex
+patient.core&gt; (patient-update 0 {:body (into-array Byte/TYPE &quot;:sex false&quot;)})
+{:status 200, :headers {&quot;content-type&quot; &quot;text/plain&quot;}, :body nil}
+;; make sure the sex changed
+patient.core&gt; (patient-view 0)
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body
+ &quot;{:fio \&quot;Sidorov\&quot;, :sex false, :date-of-birth \&quot;01.01.1901\&quot;, :address \&quot;sidorov address 2\&quot;, :oms-number \&quot;778899\&quot;}&quot;}
+;; change data for a non-existent patient
+patient.core&gt; (patient-update 1000 {:body (into-array Byte/TYPE &quot;:sex false&quot;)})
+{:status 200,
+ :headers {&quot;content-type&quot; &quot;text/plain&quot;},
+ :body &quot;No such a page.&quot;}
+;; as expected, we saw 404 (or rather the response replacing it)</code></pre>
+<p>Now everything is as it should be. Only one thing remains: the first
+2 lines of the <code>patient-update</code> function are not related to
+its main purpose:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-update
+  [id request]
+  (def patient-raw (slurp (:body request)))
+  (def patient-map (clojure.edn/read-string (str &quot;{&quot; patient-raw &quot;}&quot;)))
+  ;; ...</code></pre>
+<p>The functionality of extracting patient data from a request and
+forming a map out of it can be moved into <a
+href="https://github.com/weavejester/compojure/wiki/Middleware">middleware</a>:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>
+;; adding `wrap-routes`
+(require &#39;[compojure.core :refer [GET POST PATCH DELETE defroutes context wrap-routes]])
+
+;; ...
+
+(defn patient-create
+  [patient-data]
+  (db/put-patient! patient-data)
+  (make-response nil))
+
+(defn patient-update
+  [id patient-data]
+  (if (db/upd-patient! id patient-data)
+    (make-response nil)
+    (page-404 [])))
+
+(defn wrap-patient-data
+  [handler]
+  (fn
+    [request]
+    (let
+        [patient-raw (slurp (:body request))
+         patient-map (clojure.edn/read-string (str &quot;{&quot; patient-raw &quot;}&quot;))]
+      (handler (assoc request :patient-data patient-map)))))
+
+(defroutes app
+  ;; ...
+           (-&gt;
+            (POST &quot;/&quot; {:keys [patient-data]} (patient-create patient-data))
+            (wrap-routes wrap-patient-data))
+            ;; ... 
+                    (-&gt;
+                     (PATCH &quot;/&quot; {:keys [patient-data]} (patient-update id patient-data))
+                     (wrap-routes wrap-patient-data))  
+                     ;; ...
+  )</code></pre>
+<p>As you can see, along the way I also fixed the
+<code>patient-create</code> function's code.</p>
+<p>I'll say right away that I didn't come to the
+<code>(-&gt; (...) (...))</code> route notation right away. At first I
+wrote like this:</p>
+<pre class="clj"><code>(defroutes app
+  ;; ...
+           (wrap-patient-data
+            (POST &quot;/&quot; {:keys [patient-data]} (patient-create patient-data)))
+            ;; ... 
+                    (wrap-patient-data
+                     (PATCH &quot;/&quot; {:keys [patient-data]} (patient-update id patient-data)))  
+                     ;; ...
+  )</code></pre>
+<p>but I had problems with the <code>PATCH</code> method - the
+<code>id</code> parameter value was passed to the
+<code>patient-update</code> function correctly but
+<code>patient-data</code> was an empty map. Having placed prints I found
+out that the <code>wrap-patient-data</code> middleware, in the
+<code>PATCH</code> case, is called twice. At first I didn't understand
+why, but then I remembered: middleware is applied before it's checked
+whether the route matches the request:</p>
+<blockquote>
+<p>If you want middleware to be applied only when a route matches
+...</p>
+</blockquote>
+<p>The <code>wrap-routes</code> function together with the
+<code>-&gt;</code> macro, which allows making a chain of calls, helps
+avoid this.</p>
+<h5 id="deleting">Deleting</h5>
+<p>Everything's simple here, but there's one catch:</p>
+<p><em>REPL:</em></p>
+<pre class="clj"><code>patient.data&gt; (get-patients)
+[{:test &quot;1&quot;} {:test &quot;2&quot;} {:test &quot;3&quot;}]
+patient.data&gt; (del-patient! 5)
+Execution error (IndexOutOfBoundsException) at patient.data/del-patient!$fn (form-init4821922077780103475.clj:27).
+null</code></pre>
+<p>I don't feel like doing anything about it right now, for now I'll
+check record existence in the route handler:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(defn patient-delete
+  [id]
+  (if (db/get-patient id)
+    (do
+      (db/del-patient! id)
+      (make-response nil))
+    (page-404 [])))
+
+;; ...
+
+(defroutes app
+  ;; ...
+  (context &quot;/patient&quot; []
+           ;; ...
+           (context &quot;/:id{[0-9]+}&quot; [id :&lt;&lt; as-int]
+                    ;; ...
+                    (DELETE &quot;/&quot; [] (patient-delete id))))
+  ;; ...
+  )</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code># look at the whole list 
+$ curl http://127.0.0.1:8080
+[{:fio &quot;Петров П.П.&quot;, :sex true} {:fio &quot;Сидоров С.С.&quot;, :sex true} {:fio &quot;Иванов И.И.&quot;, :sex true}]
+# delete the middle record
+$ curl --request DELETE http://127.0.0.1:8080/patient/1
+# as we can see, two records remain
+$ curl http://127.0.0.1:8080
+[{:fio &quot;Петров П.П.&quot;, :sex true} {:fio &quot;Иванов И.И.&quot;, :sex true}]
+# try deleting a non-existent record
+$ curl --request DELETE http://127.0.0.1:8080/patient/10
+No such a page.</code></pre>
+<h5 id="results">Results</h5>
+<p>Let's see what's implemented:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />adding a new
+patient</label></li>
+<li><label><input type="checkbox" checked="" />getting the patient
+list</label></li>
+<li><label><input type="checkbox" />patient list pagination</label></li>
+<li><label><input type="checkbox" />patient search</label></li>
+<li><label><input type="checkbox" checked="" />getting patient
+data</label></li>
+<li><label><input type="checkbox" checked="" />updating patient
+data</label></li>
+<li><label><input type="checkbox" checked="" />deleting patient
+data</label></li>
+</ul>
+<p>We'll return to this checklist later, as well as to the others, and
+now let's move on to the next part of our web application!</p>
+<h3 id="infrastructure-1">Infrastructure</h3>
+<p>While we haven't gone far, let's take a step aside and work on
+infrastructure, namely implement the following two items from the
+additional task:</p>
+<ul>
+<li>CI (build on commit)</li>
+<li>prepare the product for deployment to K8s</li>
+</ul>
+<h4 id="ci">CI</h4>
+<p>So, it turns out, we need, on commit:</p>
+<ol type="1">
+<li>to run the project build</li>
+<li>to save the build result somewhere</li>
+</ol>
+<p>Let's think about these two items a bit.</p>
+<p><strong>Running the build</strong></p>
+<p>What options do we have? Well, since I develop everything locally, it
+seems there's only one option - a git hook. But in that case a build
+will run on every commit, which isn't always needed. There are several
+solutions:</p>
+<ol type="1">
+<li>develop features in branches and make the git hook only for the
+master branch</li>
+<li>add a flag to the commit that cancels the build (but then the commit
+message will contain "service garbage" meaningless to a human)</li>
+<li>use the <code>--no-verify</code> flag on commit, but then you have
+to not forget to set it every time a build isn't needed.</li>
+</ol>
+<p>So far it turns out we need either extra actions or constantly
+keeping in mind the need to write something extra to cancel the build. I
+don't like that, I want everything to work without me having to think
+about anything.</p>
+<p>Temporary solution - <strong>I'll make the build on demand</strong>,
+i.e. through the Makefile, and then maybe I'll return to this topic.</p>
+<p>Let's see what <a
+href="https://leiningen.org/tutorial.html#what-to-do-with-it">Leiningen
+offers</a> in terms of building the project:</p>
+<ul>
+<li>uberjar - 1 file that requires (it seems) only JRE, well suited for
+handing to the end user</li>
+<li>tar file and <a
+href="https://github.com/technomancy/lein-tar">lein-tar plugin</a> for
+deployment</li>
+<li>uberjar with embedded Jetti via <code>ring-jetty-adapter</code>
+(which I already have in dependencies)</li>
+<li>war file and <a
+href="https://github.com/weavejester/lein-ring">lein-ring</a></li>
+</ul>
+<p>I also googled how people generally deploy their web apps on Java.
+Everything I found - using jar files. Well, <a
+href="https://neolurk.org/wiki/Миллионы_не_могут_ошибаться">millions
+can't be wrong</a> %). Let's follow their example, <strong>our choice is
+uberjar</strong>!</p>
+<p><strong>Storing builds</strong></p>
+<p>Say the build went through, what's next? Next we need to save its
+result somewhere, and in a way that makes it clear which commit it
+belongs to (otherwise you'll exhaust yourself later figuring out where
+and when something broke, and it'll be especially fun if a new build is
+needed urgently):</p>
+<ul>
+<li>save the build result to a separate place</li>
+<li>the build must know which commit it was built from</li>
+</ul>
+<p>We also have K8s preparation in the tasks, and that thing works with
+docker or rkt (I'm not very strong in it, saw it once, from afar,
+somehow). This means we can already use docker now to prepare for the
+next stage and this solves both problems at once: we'll store everything
+in docker images (whether pushing to a public hub, a private one, or
+keeping them on the local machine) and image tags will be formed with
+the hash of the git commit the app was built from.</p>
+<p>Decided! <strong>We make a docker image build</strong> with a
+prod-ready application.</p>
+<h5 id="docker-image-for-building-and-running">Docker image for building
+and running</h5>
+<p>First let's try building the application ourselves:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ lein uberjar
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Clojure 1.12.0
+user=&gt; ^C</code></pre>
+<p>It built but not what I expected, let's see what I wrote in the
+Makefile for running the application:</p>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>run: ## Run application
+    docker compose exec app lein run -m patient.core</code></pre>
+<p><code>lein run -m patient.core</code> - i.e. I explicitly specify
+which namespace to use... hmm, looks like it's time to look at the <a
+href="https://leiningen.org/tutorial.html#uberjar">documentation</a>:</p>
+<blockquote>
+<p>... you’ll need to specify a namespace as your :main in project.clj
+and ensure it’s also AOT (Ahead Of Time) compiled by adding it to :aot
+.. ... (defproject ... :main my-stuff.core :aot [my-stuff.core])</p>
+</blockquote>
+<p>Let's add this to our project file:</p>
+<p><em>project.clj:</em></p>
+<pre class="clj"><code>(defproject patient &quot;0.1.0-SNAPSHOT&quot;
+  ;; ...
+  :main patient.core
+  :aot [patient.core])</code></pre>
+<p>Let's try to build:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Warning: The Main-Class specified does not exist within the jar. It may not be executable as expected. A gen-class directive may be missing in the namespace which contains the main method, or the namespace has not been AOT-compiled.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class patient.core
+Caused by: java.lang.ClassNotFoundException: patient.core</code></pre>
+<p>Reading the documentation further:</p>
+<blockquote>
+<p>.. This namespace should have a (:gen-class) declaration in the ns
+form at the top ..</p>
+<p>(ns my-stuff.core (:gen-class))</p>
+</blockquote>
+<p>OK, let's mark the namespace:</p>
+<p><em>core.clj:</em></p>
+<pre class="clj"><code>(ns patient.core
+  (:gen-class))
+;; ...</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code># run the build
+$ lein uberjar
+Compiling patient.core
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
+Created /app/target/patient-0.1.0-SNAPSHOT.jar
+Created /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+# now let&#39;s try to run it
+$ java -jar /app/target/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.</code></pre>
+<p>Great, we've figured out the build. Now let's work on the docker file
+for building and subsequent running.</p>
+<p><em>./build/Dockerfile:</em></p>
+<pre class="Dockerfile"><code>FROM clojure:temurin-23-lein-alpine AS builder
+
+RUN mkdir /app
+WORKDIR /app
+
+COPY . .
+
+RUN cp -r .m2 /root
+
+RUN lein deps
+RUN lein uberjar
+
+FROM ubuntu/jre:8-22.04_edge_49
+
+WORKDIR /app
+COPY --from=builder /app/target/patient-0.1.0-SNAPSHOT-standalone.jar ./app.jar
+
+CMD [&quot;java&quot;, &quot;-jar&quot;, &quot;app.jar&quot;]</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Since all development is local, I added the line
+<code>RUN cp -r .m2 /root</code> so as not to download all dependencies
+every time.</p>
+</div>
+<div class="warning">
+<div class="title">
+<p>Warning</p>
+</div>
+<p>There's only one problem with this approach: even if we remove a
+package from the dependencies it will still remain in
+<code>/root/.m2</code>, which can lead to a non-reproducible build. The
+scenario is:</p>
+<ol type="1">
+<li>add a dependency to <code>project.clj</code> and install it via
+<code>lein deps</code></li>
+<li>switch to another branch that doesn't have this dependency and use
+the installed library</li>
+<li>build the image</li>
+<li>clean the <code>/root/.m2</code> folder</li>
+<li>run <code>lein deps</code></li>
+<li>run the image build which fails because the needed library we
+installed in step one is missing</li>
+</ol>
+<p>Later, if I don't forget, I'll return to this problem. Right now I
+don't have a ready solution.</p>
+</div>
+<p>Let's try to build and run all this:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ docker build -t test-clj-app -f ./build/Dockerfile .
+# ...
+$ docker run --rm -it test-clj-app
+Error: Could not find or load main class java</code></pre>
+<p>Either it built wrong or I don't know what %). Let's try to run this
+jar file, created in our development environment (i.e. in the
+<code>clojure:temurin-23-lein-alpine</code> container), inside a
+container with JRE:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 java -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Error: Could not find or load main class java</code></pre>
+<p>Aha, the JRE image doesn't work for some reason. Let's get inside it
+and run the jar file from there, then look at the logs:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 bash
+Error: Could not find or load main class bash</code></pre>
+<p>Oops! Let's go read the <a
+href="https://hub.docker.com/r/ubuntu/jre">documentation</a> :D. We see
+this example in it:</p>
+<pre class="Dockerfile"><code>FROM ubuntu:22.04 AS builder
+RUN apt-get update &amp;&amp; apt-get install -y openjdk-8-jdk
+WORKDIR /app
+ADD HelloWorld.java .
+
+RUN javac -source 8 -target 8 HelloWorld.java -d .
+
+FROM ubuntu/jre:8-22.04_edge
+
+WORKDIR /
+COPY --from=builder /app/HelloWorld.class .
+
+CMD [ &quot;HelloWorld&quot; ]</code></pre>
+<p>I.e. I must pass an already compiled object file (as far as I
+understand). We don't have one but we have a jar, let's see if you can
+run a jar from java; judging by <a
+href="https://stackoverflow.com/a/4936279">this answer</a> on
+StackOverflow you can. Since a java machine is already running in the
+container, let's try passing parameters to it:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ docker run --rm -it -v ./target:/app ubuntu/jre:8-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread &quot;main&quot; java.lang.UnsupportedClassVersionError: jakarta/servlet/AsyncContext has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
+        at java.lang.ClassLoader.defineClass1(Native Method)
+        # ...</code></pre>
+<p>Better already. Let's update our JRE (I don't remember why I picked
+this one anymore):</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code>$ docker pull ubuntu/jre:17-22.04_edge_49
+17-22.04_edge_49: Pulling from ubuntu/jre
+# ...
+$ docker run --rm -it -v ./target:/app ubuntu/jre:17-22.04_edge_49 -jar /app/patient-0.1.0-SNAPSHOT-standalone.jar
+Exception in thread &quot;main&quot; java.lang.NoClassDefFoundError: java/util/SequencedCollection
+        at java.base/java.lang.Class.forName0(Native Method)
+        # ...</code></pre>
+<p>Something is missing for it. I asked in the Russian-speaking <a
+href="https://t.me/clojure_ru">telegram chat</a> about clojure, and was
+told that <code>SequencedCollection</code> only appeared in Java 21.
+Damn, the official ubuntu <a
+href="https://hub.docker.com/r/ubuntu/jre">hub</a> has no JRE 21, only 8
+and 17. Let's see what else there is:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code># download a new JRE image
+$ docker pull bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+# ...
+# run our application in it
+$ docker run --rm -it -v ./target:/app bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc java -jar app/patient-0.1.0-SNAPSHOT-standalone.jar
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.</code></pre>
+<p>It started, we'll keep it that way. Let's change the container in our
+file:</p>
+<p><em>./build/Dockerfile:</em></p>
+<pre class="Dockerfile"><code># ...
+
+RUN lein uberjar
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+WORKDIR /app
+
+# ...</code></pre>
+<p><em>shell:</em></p>
+<pre class="shell"><code># build the container
+$ docker build -t test-clj-app -f ./build/Dockerfile .
+[+] Building 11.7s (16/16) FINISHED                                                            docker:default
+# run it
+$ docker run --rm -it test-clj-app
+SLF4J: No SLF4J providers were found.
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.</code></pre>
+<p>Great, everything works.</p>
+<h5 id="make-command-for-building-the-project">Make command for building
+the project</h5>
+<p>So, we need some way to determine which commit we built the docker
+image from. This problem can be solved in several ways:</p>
+<ol type="1">
+<li>put the commit hash in the docker image name</li>
+<li>add the commit hash to the docker image metadata</li>
+<li>add an environment variable to the docker image</li>
+</ol>
+<p>Let's look at them in order.</p>
+<p>The first way lets you quickly, without extra actions, find out the
+commit the build was made from, but you can change the image tag and
+then there's no way to know where it was built from. The second option
+lacks the first one's drawback, or rather the trick with a label is
+harder to pull off than with a tag, but <a
+href="https://github.com/dokku/docker-image-labeler">possible</a>. And
+the third option seems definitely free of this drawback, at least I
+couldn't quickly google how to change an image's environment
+variables.</p>
+<p>I decided to use a combined approach: I'll use options 1 and 3. The
+first so the human doesn't suffer, the third mostly so that this value
+can be put in logs and later, in some grafana, see which build is
+sending logs.</p>
+<p>So, first let's make sure we have no modified and untracked
+files:</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If modified files are clear, untracked ones need an explanation: we
+can write code in a new file and not put it under git's watch, in which
+case, if we run the build without checking for such files we'll, again,
+get a non-reproducible build, since a commit without this new file can
+go into git. This adds problems during build because I'll now have to
+either delete all unneeded files before it or add them to
+<code>.gitignore</code>.</p>
+</div>
+<p><em>./build/build.sh:</em></p>
+<pre class="shell"><code>#!/bin/bash
+
+# Color the messages so you can tell what&#39;s happening without reading
+COLOR_FAIL=&#39;\033[0;31m&#39; # Red
+COLOR_SUCCESS=&#39;\033[0;32m&#39; # Green
+COLOR_NC=&#39;\033[0m&#39; # No Color
+
+# check there are no modified or untracked files
+# for that get the list of files and count them
+git_files_count=$(git status -s | wc -l)
+if [ $git_files_count -ne 0 ]; then
+  echo -e &quot;${COLOR_FAIL}FAIL:${COLOR_NC}&quot;
+  echo &quot;The project has untracked or modified files ($git_files_count of them)&quot;
+  exit 1
+fi
+
+# get the short commit hash
+hash=$(git rev-parse --short HEAD)
+
+# run the build
+build_name=&quot;patient:$hash&quot;
+docker build -t $build_name -f ./build/Dockerfile .
+
+if [ $? -ne 0 ]; then
+  echo -e &quot;${COLOR_FAIL}FAIL:${COLOR_NC}&quot;
+  echo &quot;The build finished with errors, see messages above.&quot;
+  exit 1
+fi
+
+echo -e &quot;${COLOR_SUCCESS}SUCCESS:${COLOR_NC} $build_name&quot;
+exit 0</code></pre>
+<p><em>Makefile:</em></p>
+<pre class="Makefile"><code>
+# ...
+
+docker-build: ## Build containers
+    docker compose build
+
+# ...
+
+build: ## Build prod app docker-image
+    bash ./build/build.sh</code></pre>
+<p>Earlier the <code>build</code> command was responsible for building
+the docker image for development; I renamed it to
+<code>docker-build</code> and this name is now used for building
+prod.</p>
+<p>Let's check:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code># see if I have anything modified or untracked
+$ git status -s
+ M Makefile
+# run the build
+$ make build
+bash ./build/build.sh
+FAIL:
+The project has untracked or modified files (1 of them)
+make: *** [Makefile:31: build] Error 1
+# commit the Makefile changes
+$ git add Makefile
+$ git commit -m &quot;feat: add command for buil prod ready docker image&quot;
+# run the build again
+$ make build
+bash ./build/build.sh
+[+] Building 11.6s (16/16) FINISHED                                                            docker:default
+# ...
+SUCCESS: patient:1de6043
+# check such an image really exists
+$ docker image ls | grep patient
+patient                               1de6043                          408329cd984b   About a minute ago   308MB</code></pre>
+<p>The 308 MB image size bothers me a bit, but that's for later.</p>
+<p>Now we need to add the commit hash the image was built from to an
+image environment variable at build time. Just add passing an argument
+during the build:</p>
+<p><em>./build/build.sh:</em></p>
+<pre class="shell"><code># ...
+
+docker build --build-arg version=$hash -t $build_name -f ./build/Dockerfile .
+
+# ...</code></pre>
+<p><em>./build/Dockerfile:</em></p>
+<pre class="Dockerfile"><code># ...
+
+FROM bellsoft/liberica-runtime-container:jdk-21.0.5-crac-cds-slim-glibc
+
+ARG version
+ENV version=${version:-v0.0}
+
+# ...</code></pre>
+<p>Let's check:</p>
+<p><em>shell:</em></p>
+<pre class="shell"><code># rebuild the image
+$ make build
+# ...
+SUCCESS: patient:1de6043
+# see what it has inside
+$ docker image inspect patient:1de6043 | grep 1de6043
+            &quot;patient:1de6043&quot;
+                &quot;version=1de6043&quot;</code></pre>
+<h5 id="summary">Summary:</h5>
+<p>What we did:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />automated image building
+(via Makefile)</label></li>
+<li><label><input type="checkbox" checked="" />there's somewhere to
+store builds</label></li>
+<li><label><input type="checkbox" checked="" />the build knows which
+commit it was built from</label></li>
+<li><label><input type="checkbox" checked="" />a basic check for
+non-reproducible builds (we check that <code>git status</code> is
+empty)</label></li>
+</ul>
+<p>Problems that remain/were added:</p>
+<ul class="task-list">
+<li><label><input type="checkbox" />the image build is not
+automatic</label></li>
+<li><label><input type="checkbox" />non-reproducible builds due to
+<code>/root/.m2</code> which doesn't remove dependencies absent from
+<code>project.clj</code></label></li>
+<li><label><input type="checkbox" />large image size - 308
+MB</label></li>
+<li><label><input type="checkbox" />there should be no "extra" files
+when building the project</label></li>
+</ul>
+<hr />
+<ul>
+<li><a href="https://github.com/4irik/log/issues/3">Issue</a> for
+comments</li>
+<li><a href="https://t.me/stdi0_h/36">Announcement</a> in the Telegram
+channel</li>
+<li><a
+href="https://www.linkedin.com/posts/kirill-cherednichenko_clojure-functionalprogramming-webdev-activity-7254405331810725889-vWrU">Announcement</a>
+on LinkedIn</li>
+</ul>
+<section id="comments">
+<h2>Comments</h2>
+<p><a href="https://github.com/4irik/log/issues">Comments on GitHub</a></p>
+</section>
+<script src="../comments.js"></script>
+</body>
+</html>
