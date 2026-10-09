@@ -391,12 +391,6 @@ $model->hasErrors(); // true
 $model->hasErrors('data'); // false
 ```
 
----
-
-[Issue](https://github.com/4irik/log/issues/5) для комментариев
-
-Мой ТГ - https://t.me/stdi0_h
-
 
 ---
 
@@ -535,12 +529,6 @@ return [
 На этом всё: если пришёл запрос, и форма не прошла валидацию, пользователь увидит ответ с ошибками, действие в контроллере не запустится, а мы не будем писать шаблонный код создания наполнения и валидации формы каждый раз. 
 
 Happy end!
-
----
-
-[Issue](https://github.com/4irik/log/issues/4) для комментариев
-
-Мой ТГ - https://t.me/stdi0_h
 
 
 ---
@@ -2657,12 +2645,6 @@ $ docker image inspect patient:1de6043 | grep 1de6043
 - [ ] большой объём образа - 308 МБ
 - [ ] "лишних" файлов не должно быть при сборке проекта
 
----
-
-- [Issue](https://github.com/4irik/log/issues/3) для комментариев
-- [Анонс](https://t.me/stdi0_h/36) в телеграм-канале
-- [Анонс](https://www.linkedin.com/posts/kirill-cherednichenko_clojure-functionalprogramming-webdev-activity-7254405331810725889-vWrU) в LinkedIn
-
 
 ---
 
@@ -3198,11 +3180,6 @@ failure: 2
 - моки/стабы (?!)
 - setup/teardown для файла/для всего тестового набора
 - параллельное выполнение тестов (?!)
-
----
-
-- [Issue](https://github.com/4irik/log/issues/2) для комментариев.
-- [Анонс](https://t.me/stdi0_h/31) в телеграм-канале.
 
 
 ---

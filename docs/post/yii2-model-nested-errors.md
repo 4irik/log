@@ -210,9 +210,3 @@ $model->validate(); // false
 $model->hasErrors(); // true
 $model->hasErrors('data'); // false
 ```
-
----
-
-[Issue](https://github.com/4irik/log/issues/5) для комментариев
-
-Мой ТГ - https://t.me/stdi0_h

@@ -131,9 +131,3 @@ return [
 That's it: if a request comes in and the form fails validation, the user sees a response with errors, the controller action doesn't run, and we don't write the boilerplate form creation/population/validation code every time.
 
 Happy end!
-
----
-
-[Issue](https://github.com/4irik/log/issues/4) for comments
-
-My Telegram - https://t.me/stdi0_h

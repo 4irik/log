@@ -2107,9 +2107,3 @@ Problems that remain/were added:
 - [ ] non-reproducible builds due to `/root/.m2` which doesn't remove dependencies absent from `project.clj`
 - [ ] large image size - 308 MB
 - [ ] there should be no "extra" files when building the project
-
----
-
-- [Issue](https://github.com/4irik/log/issues/3) for comments
-- [Announcement](https://t.me/stdi0_h/36) in the Telegram channel
-- [Announcement](https://www.linkedin.com/posts/kirill-cherednichenko_clojure-functionalprogramming-webdev-activity-7254405331810725889-vWrU) on LinkedIn
