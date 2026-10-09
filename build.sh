@@ -130,8 +130,8 @@ while IFS='|' read -r date name rt et; do
 		printf -- '- %s — [%s](post/%s.html)' "$date" "$rt" "$name" >> "$index_en"
 	fi
 	if [ -n "$rt" ] && [ -n "$et" ]; then
-		printf ' [en](post/%s.en.html)' "$name" >> "$index"
-		printf ' [ru](post/%s.html)' "$name" >> "$index_en"
+		printf ' [[en]](post/%s.en.html)' "$name" >> "$index"
+		printf ' [[ru]](post/%s.html)' "$name" >> "$index_en"
 	fi
 	printf '\n' >> "$index"
 	printf '\n' >> "$index_en"
