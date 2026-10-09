@@ -1,0 +1,1 @@
+I'm a backend developer with 14+ years of professional experience, mostly in PHP. I build and evolve backend systems, focusing on architecture, reliability and maintainability. Outside of product development, I explore developer tools, Linux workflows and AI-assisted development, sharing projects and findings along the way.
