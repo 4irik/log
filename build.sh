@@ -7,7 +7,7 @@ set -eu
 SITE_URL="${SITE_URL:-https://4irik.github.io/log}"
 TITLE='Б_лог'
 DESC='Технический блог: посты — markdown-файлы, комментарии — GitHub issues.'
-CONTACTS='[тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)'
+CONTACTS='[тг](https://t.me/jAa1l), [блог в тг](https://t.me/stdi0_h), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko), CV: [ru](assets/cv/resume-ru.pdf), [en](assets/cv/resume-en.pdf)'
 
 OUT=docs
 
