@@ -1,5 +1,7 @@
 # 0blog
 
+> Технический блог: посты — markdown-файлы, комментарии — GitHub issues.
+
 Я backend-разработчик с более чем 14 годами профессионального опыта, преимущественно на PHP. Разрабатываю новые и развиваю существующие backend-системы, уделяя внимание архитектуре, надёжности и сопровождаемости. В свободное от продуктовой разработки время исследую инструменты разработчика, Linux и применение LLM в разработке, делясь своими проектами и выводами.
 
 
@@ -9,10 +11,14 @@
 
 ## Посты
 
-- [Написание заметок для LinkedIn в Markdown. Вайбкодим свой преобразователь форматов в Cursor. ](https://4irik.github.io/log/post/linkedin-post-formatter.md) — 2025-11-19
-- [Замена удалённого в PHPUnit 10 метода `withConsecutive` с помощью ChatGPT](https://4irik.github.io/log/post/phpunit-replace-with_consecutive-with-ai.md) — 2025-09-11
-- [Делаем вложенные ошибки валидации в yii2](https://4irik.github.io/log/post/yii2-model-nested-errors.md) — 2025-01-11
-- [Валидация форм yii2 как в Laravel](https://4irik.github.io/log/post/laravel-form-in-yii2.md) — 2025-01-07
-- [Пишем простое web-приложение на Clojure](https://4irik.github.io/log/post/clojure-simple-web-app.md) — 2024-10-11
-- [Пишем библиотеку для тестирования shell-скриптов](https://4irik.github.io/log/post/bash-testing.md) — 2024-09-20
-- [Создание идеального скринкаста работы с терминалом](https://4irik.github.io/log/post/terminal-screencasting.md) — 2024-09-03
+- [Написание заметок для LinkedIn в Markdown. Вайбкодим свой преобразователь форматов в Cursor. ](https://4irik.github.io/log/post/linkedin-post-formatter.md): 2025-11-19
+- [Замена удалённого в PHPUnit 10 метода `withConsecutive` с помощью ChatGPT](https://4irik.github.io/log/post/phpunit-replace-with_consecutive-with-ai.md): 2025-09-11
+- [Делаем вложенные ошибки валидации в yii2](https://4irik.github.io/log/post/yii2-model-nested-errors.md): 2025-01-11
+- [Валидация форм yii2 как в Laravel](https://4irik.github.io/log/post/laravel-form-in-yii2.md): 2025-01-07
+- [Пишем простое web-приложение на Clojure](https://4irik.github.io/log/post/clojure-simple-web-app.md): 2024-10-11
+- [Пишем библиотеку для тестирования shell-скриптов](https://4irik.github.io/log/post/bash-testing.md): 2024-09-20
+- [Создание идеального скринкаста работы с терминалом](https://4irik.github.io/log/post/terminal-screencasting.md): 2024-09-03
+
+## Optional
+
+- [llms-full.txt](https://4irik.github.io/log/llms-full.txt): полный текст всех постов одним файлом

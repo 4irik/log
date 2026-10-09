@@ -36,10 +36,10 @@ printf '\n%s\n\n## Посты\n\n' "$CONTACTS_RU" >> "$index"
 printf '# <span class="mono">0b</span>log <a href="index.html" class="lang">[ru]</a>\n\n' > "$index_en"
 [ ! -f "$OUT/about.en.md" ] || { cat "$OUT/about.en.md"; printf '\n'; } >> "$index_en"
 printf '\n%s\n\n## Posts\n\n' "$CONTACTS_EN" >> "$index_en"
-printf '# %s\n\n' "$TITLE" > "$OUT/llms.txt"
+printf '# %s\n\n> %s\n\n' "$TITLE" "$DESC" > "$OUT/llms.txt"
 [ ! -f "$OUT/about.md" ] || { cat "$OUT/about.md"; printf '\n'; } >> "$OUT/llms.txt"
 printf '\n%s\n\n## Посты\n\n' "$CONTACTS_RU" >> "$OUT/llms.txt"
-printf '# %s\n\n%s\n\n' "$TITLE" "$DESC" > "$OUT/llms-full.txt"
+printf '# %s\n\n> %s\n\n' "$TITLE" "$DESC" > "$OUT/llms-full.txt"
 [ ! -f "$OUT/about.md" ] || cat "$OUT/about.md" >> "$OUT/llms-full.txt"
 printf '\n%s\n' "$CONTACTS_RU" >> "$OUT/llms-full.txt"
 : > "$entries"
@@ -110,12 +110,14 @@ done
 
 # llms.txt stays ru-only
 sort -r "$entries" | while IFS='|' read -r date title name lang; do
-	printf -- '- [%s](%s/post/%s.md) — %s\n' "$title" "$SITE_URL" "$name" "$date" >> "$OUT/llms.txt"
+	printf -- '- [%s](%s/post/%s.md): %s\n' "$title" "$SITE_URL" "$name" "$date" >> "$OUT/llms.txt"
 	{
 		printf '\n\n---\n\n<%s/post/%s.md> (%s)\n\n' "$SITE_URL" "$name" "$date"
 		cat "$OUT/post/$name.md"
 	} >> "$OUT/llms-full.txt"
 done
+
+printf '\n## Optional\n\n- [llms-full.txt](%s/llms-full.txt): полный текст всех постов одним файлом\n' "$SITE_URL" >> "$OUT/llms.txt"
 
 # merge both languages into "date|name|ru_title|en_title", ru date wins for a pair
 cat "$entries" "$entries_en" | awk -F'|' '
