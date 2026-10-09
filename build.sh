@@ -12,7 +12,7 @@ CONTACTS_RU='Связь: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.
 Почитать: [Блог в ТГ](https://t.me/stdi0_h)\
 Резюме: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
 CONTACTS_EN='Contact: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
-Read: [Блог в ТГ](https://t.me/stdi0_h) (in Russian)\
+Read: [Telegram blog](https://t.me/stdi0_h) (in Russian)\
 CV: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
 
 OUT=docs
