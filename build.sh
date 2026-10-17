@@ -9,11 +9,9 @@ SITE_URL="${SITE_URL:-https://4irik.github.io/log}"
 TITLE='0blog'
 DESC='Технический блог: посты — markdown-файлы, комментарии — GitHub issues.'
 CONTACTS_RU='Связь: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
-Почитать: [Блог в ТГ](https://t.me/stdi0_h)\
-Резюме: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
+Почитать: [Блог в ТГ](https://t.me/stdi0_h)'
 CONTACTS_EN='Contact: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
-Read: [Telegram blog](https://t.me/stdi0_h) (in Russian)\
-CV: [RU](assets/cv/resume-ru.pdf) · [EN](assets/cv/resume-en.pdf)'
+Read: [Telegram blog](https://t.me/stdi0_h) (in Russian)'
 
 OUT=docs
 
