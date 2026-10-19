@@ -939,7 +939,7 @@ SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
 
 Ошибок нет, и если зайти на `http://127.0.0.1:8080` то увидим:
 
-```text
+```out
 You requested get /
 ```
 

@@ -18,5 +18,12 @@ for path in glob.glob("docs/**/*.html", recursive=True):
     out = re.sub(r"\n[ \t]+(?=</(?:code></pre|pre))", "\n", out)
     # pandoc over-escapes: in text content only &lt; and &amp; are required
     out = re.sub(r"<pre[\s>].*?</pre>", _unescape, out, flags=re.S)
+    # ```out fenced blocks mark program output -> semantic <samp>
+    out = re.sub(
+        r'<pre class="out"><code>(.*?)</code></pre>',
+        r'<pre class="out"><samp>\1</samp></pre>',
+        out,
+        flags=re.S,
+    )
     with open(path, "w") as f:
         f.write(out if out.endswith("\n") else out + "\n")

@@ -396,7 +396,7 @@ SLF4J: See https://www.slf4j.org/codes.html#noProviders for further details.
 
 No errors, and if we go to `http://127.0.0.1:8080` we'll see:
 
-```text
+```out
 You requested get /
 ```
 
