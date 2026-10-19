@@ -8,11 +8,6 @@ set -eu
 SITE_URL="${SITE_URL:-https://4irik.github.io/log}"
 TITLE='0blog'
 DESC='Технический блог: посты — markdown-файлы, комментарии — GitHub issues.'
-CONTACTS_RU='Связь: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
-Почитать: [Блог в ТГ](https://t.me/stdi0_h)'
-CONTACTS_EN='Contact: [Telegram](https://t.me/jAa1l), [LinkedIn](https://www.linkedin.com/in/kirill-cherednichenko)\
-Read: [Telegram blog](https://t.me/stdi0_h) [ru]'
-
 OUT=docs
 
 # remove only generated files: docs/post/*.md, docs/assets/, docs/style.css are sources
@@ -30,16 +25,16 @@ entries_en="$OUT/.entries-en"
 merged="$OUT/.merged"
 printf '# <span class="mono">0b</span>log <a href="en.html" class="lang">[en]</a>\n\n' > "$index"
 [ ! -f "$OUT/about.md" ] || { cat "$OUT/about.md"; printf '\n'; } >> "$index"
-printf '\n%s\n\n## Посты\n\n' "$CONTACTS_RU" >> "$index"
+printf '\n## Посты\n\n' >> "$index"
 printf '# <span class="mono">0b</span>log <a href="index.html" class="lang">[ru]</a>\n\n' > "$index_en"
 [ ! -f "$OUT/about.en.md" ] || { cat "$OUT/about.en.md"; printf '\n'; } >> "$index_en"
-printf '\n%s\n\n## Posts\n\n' "$CONTACTS_EN" >> "$index_en"
+printf '\n## Posts\n\n' >> "$index_en"
 printf '# %s\n\n> %s\n\n' "$TITLE" "$DESC" > "$OUT/llms.txt"
 [ ! -f "$OUT/about.md" ] || { cat "$OUT/about.md"; printf '\n'; } >> "$OUT/llms.txt"
-printf '\n%s\n\n## Посты\n\n' "$CONTACTS_RU" >> "$OUT/llms.txt"
+printf '\n## Посты\n\n' >> "$OUT/llms.txt"
 printf '# %s\n\n> %s\n\n' "$TITLE" "$DESC" > "$OUT/llms-full.txt"
 [ ! -f "$OUT/about.md" ] || cat "$OUT/about.md" >> "$OUT/llms-full.txt"
-printf '\n%s\n' "$CONTACTS_RU" >> "$OUT/llms-full.txt"
+printf '\n' >> "$OUT/llms-full.txt"
 : > "$entries"
 : > "$entries_en"
 
