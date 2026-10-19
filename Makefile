@@ -33,6 +33,7 @@ site: ## Build the static site into docs/ (GitHub Pages source)
 		--entrypoint sh \
 		docker.io/pandoc/core:3 \
 		build.sh
+	python3 format.py
 
 serve: site ## Build the site and preview it at http://localhost:8000
 	python3 -m http.server 8000 -d docs
