@@ -97,6 +97,8 @@ table thead {
 	pre {
 		background-color: #2a2a1e;
 		box-shadow: 0 -1px 0 #555555 inset;
+		color-scheme: dark;
+		scrollbar-color: #8a8a72 #2a2a1e;
 	}
 
 	:not(pre) > code {
