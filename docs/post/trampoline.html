@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru" xml:lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="generator" content="pandoc 3.11" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+    <title>Трамплин: рекурсия любой глубины в PHP</title>
+    <link rel="stylesheet" href="../style.css" />
+    <link rel="describedby" href="https://4irik.github.io/log/llms.txt"><link rel="alternate" type="text/markdown" href="https://4irik.github.io/log/post/trampoline.md">
+  </head>
+  <body>
+    <h1 id="трамплин-рекурсия-любой-глубины-в-php">Трамплин: рекурсия любой
+      глубины в PHP</h1>
+    <p class="date">2026-11-14</p>
+
+    <p><img src="../assets/trampoline/mermaid-diagram.png"
+            alt="Обычная хвостовая рекурсия и трамплин: стек растёт или остаётся постоянным" /></p>
+    <p>В функциональных языках, в отличие от PHP и прочих мейнстримных
+      языков, нет циклов, их место занимает рекурсия. Но в том же самом PHP
+      глубина рекурсивного вызова ограничена, ну и как бы, в большинстве
+      случаев, это не важно, просто пишем через итерации. Но мой <a
+        href="https://github.com/4irik/lisphp">lisp-интерпретатор</a> написан на
+      PHP, а значит, если я хочу чтобы он полноценно работал, нужно чтобы он
+      обрабатывал рекурсивные вызовы любой вложенности.</p>
+    <p>Начнём с анализа того что есть в PHP:</p>
+<pre class="php"><code>function show(string $label): void
+{
+    echo $label . "\n";
+    foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $i => $frame) {
+        $fn = $frame['function'] ?? '?';
+        $line = $frame['line'] ?? '-';
+        echo "  #$i $fn line $line\n";
+    }
+}
+
+function fact_rec(int $n): int {
+    if ($n === 0) {
+        show('fact rec at n=0');
+        return 1;
+    }
+
+    return fact_rec($n - 1) * $n;
+}
+
+function fact_iter(int $n, int|float $acc = 1): int|float {
+    if ($n === 0) {
+        show('fact iter at n = 0');
+        return $acc;
+    }
+
+    return fact_iter($n - 1, $acc * $n);
+}
+
+fact_rec(10);
+fact_iter(10);</code></pre>
+    <p>При запуске мы увидим что стек вызовов будет копиться и в рекурсивной
+      и в итеративной форме функции:</p>
+<pre class="out"><samp>fact rec at n=0
+  #0 show line 63
+  #1 fact_rec line 67
+  #2 fact_rec line 67
+  #3 fact_rec line 67
+  #4 fact_rec line 67
+  #5 fact_rec line 67
+  #6 fact_rec line 67
+  #7 fact_rec line 67
+  #8 fact_rec line 67
+  #9 fact_rec line 67
+  #10 fact_rec line 67
+  #11 fact_rec line 79
+fact iter at n = 0
+  #0 show line 72
+  #1 fact_iter line 76
+  #2 fact_iter line 76
+  #3 fact_iter line 76
+  #4 fact_iter line 76
+  #5 fact_iter line 76
+  #6 fact_iter line 76
+  #7 fact_iter line 76
+  #8 fact_iter line 76
+  #9 fact_iter line 76
+  #10 fact_iter line 76
+  #11 fact_iter line 80</samp></pre>
+    <p>И, при достаточно большом начальном входном значении, мы получаем
+      Allowed memory size. Для рекурсивной версии функции я получил выход за
+      пределы памяти при вычислении факториала от 185_000, для итеративной
+      формы — 220_000.</p>
+    <p>Так вот, есть способ заставить языки без <a
+      href="https://en.wikipedia.org/wiki/Tail_call">TCO</a>, подчищать стек
+      вызовов, если он не нужен. Называется <em>трамплин</em>. Но, к
+      сожалению, он требует модификаций исходной функции:</p>
+    <ol type="1">
+      <li>нужно перевести форму в итеративную форму (пример — fact_iter) чтобы
+        каждый вызов был независим и получал, в качестве аргументов, все
+        необходимые данные для вычисления;</li>
+      <li>функция должна вернуть не вызов себя же, а специальный контейнер в
+        котором заключён этот самовызов.</li>
+    </ol>
+<pre class="php"><code>final class Thunk
+{
+    public function __construct(public Closure $resume) {}
+}
+
+function trampoline(Closure $start): mixed
+{
+    $value = $start();
+    while ($value instanceof Thunk) {
+        $value = ($value->resume)();
+    }
+    return $value;
+}
+
+function fact_trump(int $n, int|float $acc = 1): Thunk|int|float {
+    if ($n === 0) {
+        show('fact trump at n = 0');
+        return $acc;
+    }
+
+    return new Thunk(static fn() => fact_trump($n - 1, $acc * $n));
+}
+
+trampoline(static fn() => fact_trump(1_000_000));</code></pre>
+    <p>И, видим такой вывод стека:</p>
+<pre class="out"><samp>fact trump at n = 0
+  #0 show line 81
+  #1 fact_trump line 85
+  #2 {closure:fact_trump():85} line 13
+  #3 trampoline line 90</samp></pre>
+    <p>это для факториала миллионного числа! Напоминаю что две предыдущих
+      реализации получили OOM уже в районе 200_000.</p>
+    <p>PS. <code>int|float</code> в итеративной форме функции указано т.к.
+      на больших числах мы выходим за пределы <code>int</code> и интерпретатор
+      преобразует число во <code>float</code>.</p>
+    <p>PPS. Полный пример кода - <a
+      href="https://gist.github.com/4irik/83732a02ea7b6c0b85bf40ab0619aab1">https://gist.github.com/4irik/83732a02ea7b6c0b85bf40ab0619aab1</a></p>
+    <section id="comments">
+      <h2>Комментарии</h2>
+      <p><a href="https://github.com/4irik/log/issues">Комментарии на GitHub</a></p>
+    </section>
+    <script src="../comments.js"></script>
+  </body>
+</html>

@@ -10,6 +10,7 @@
 
 ## Посты
 
+- [Трамплин: рекурсия любой глубины в PHP](https://4irik.github.io/log/post/trampoline.md): 2026-11-14
 - [Написание заметок для LinkedIn в Markdown. Вайбкодим свой преобразователь форматов в Cursor. ](https://4irik.github.io/log/post/linkedin-post-formatter.md): 2025-11-19
 - [Замена удалённого в PHPUnit 10 метода `withConsecutive` с помощью ChatGPT](https://4irik.github.io/log/post/phpunit-replace-with_consecutive-with-ai.md): 2025-09-11
 - [Делаем вложенные ошибки валидации в yii2](https://4irik.github.io/log/post/yii2-model-nested-errors.md): 2025-01-11
