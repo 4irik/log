@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="generator" content="pandoc 3.11" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+    <title>Trampoline: recursion of any depth in PHP</title>
+    <link rel="stylesheet" href="../style.css" />
+    <link rel="describedby" href="https://4irik.github.io/log/llms.txt"><link rel="alternate" type="text/markdown" href="https://4irik.github.io/log/post/trampoline.en.md">
+  </head>
+  <body>
+    <h1 id="trampoline-recursion-of-any-depth-in-php">Trampoline: recursion
+      of any depth in PHP</h1>
+    <p class="date">2026-11-14</p>
+
+    <p><img src="../assets/trampoline/mermaid-diagram.png"
+            alt="Ordinary tail recursion versus a trampoline: the call stack grows or stays flat" /></p>
+    <p>In functional languages, unlike PHP and other mainstream languages,
+      there are no loops. Recursion takes their place. But in that same PHP
+      the depth of a recursive call is limited, and, well, most of the time
+      that doesn't matter, you just write it with iteration. But my <a
+        href="https://github.com/4irik/lisphp">lisp interpreter</a> is written
+      in PHP, which means if I want it to actually work, it has to handle
+      recursive calls of any nesting depth.</p>
+    <p>Let's start by looking at what PHP gives us:</p>
+<pre class="php"><code>function show(string $label): void
+{
+    echo $label . "\n";
+    foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $i => $frame) {
+        $fn = $frame['function'] ?? '?';
+        $line = $frame['line'] ?? '-';
+        echo "  #$i $fn line $line\n";
+    }
+}
+
+function fact_rec(int $n): int {
+    if ($n === 0) {
+        show('fact rec at n=0');
+        return 1;
+    }
+
+    return fact_rec($n - 1) * $n;
+}
+
+function fact_iter(int $n, int|float $acc = 1): int|float {
+    if ($n === 0) {
+        show('fact iter at n = 0');
+        return $acc;
+    }
+
+    return fact_iter($n - 1, $acc * $n);
+}
+
+fact_rec(10);
+fact_iter(10);</code></pre>
+    <p>When you run it, the call stack piles up in both the recursive and
+      the iterative form of the function:</p>
+<pre class="out"><samp>fact rec at n=0
+  #0 show line 63
+  #1 fact_rec line 67
+  #2 fact_rec line 67
+  #3 fact_rec line 67
+  #4 fact_rec line 67
+  #5 fact_rec line 67
+  #6 fact_rec line 67
+  #7 fact_rec line 67
+  #8 fact_rec line 67
+  #9 fact_rec line 67
+  #10 fact_rec line 67
+  #11 fact_rec line 79
+fact iter at n = 0
+  #0 show line 72
+  #1 fact_iter line 76
+  #2 fact_iter line 76
+  #3 fact_iter line 76
+  #4 fact_iter line 76
+  #5 fact_iter line 76
+  #6 fact_iter line 76
+  #7 fact_iter line 76
+  #8 fact_iter line 76
+  #9 fact_iter line 76
+  #10 fact_iter line 76
+  #11 fact_iter line 80</samp></pre>
+    <p>And, with a large enough initial input, we get Allowed memory size.
+      For the recursive version I ran out of memory computing the factorial of
+      185_000, for the iterative form — 220_000.</p>
+    <p>So there is a way to make languages without <a
+      href="https://en.wikipedia.org/wiki/Tail_call">TCO</a> clear the call
+      stack when it is no longer needed. It's called a <em>trampoline</em>.
+      Unfortunately, it requires changes to the original function:</p>
+    <ol type="1">
+      <li>you need to rewrite it into iterative form (fact_iter is the
+        example) so that each call is independent and receives, as arguments,
+        everything it needs to compute;</li>
+      <li>the function must return not a call to itself, but a special
+        container that holds that self-call.</li>
+    </ol>
+<pre class="php"><code>final class Thunk
+{
+    public function __construct(public Closure $resume) {}
+}
+
+function trampoline(Closure $start): mixed
+{
+    $value = $start();
+    while ($value instanceof Thunk) {
+        $value = ($value->resume)();
+    }
+    return $value;
+}
+
+function fact_trump(int $n, int|float $acc = 1): Thunk|int|float {
+    if ($n === 0) {
+        show('fact trump at n = 0');
+        return $acc;
+    }
+
+    return new Thunk(static fn() => fact_trump($n - 1, $acc * $n));
+}
+
+trampoline(static fn() => fact_trump(1_000_000));</code></pre>
+    <p>And we see this stack trace:</p>
+<pre class="out"><samp>fact trump at n = 0
+  #0 show line 81
+  #1 fact_trump line 85
+  #2 {closure:fact_trump():85} line 13
+  #3 trampoline line 90</samp></pre>
+    <p>that's for the factorial of a million! A reminder that the two
+      previous implementations already OOM'd around 200_000.</p>
+    <p>PS. <code>int|float</code> in the iterative form is there because on
+      large numbers we overflow <code>int</code> and the interpreter turns the
+      number into a <code>float</code>.</p>
+    <p>PPS. The full code example - <a
+      href="https://gist.github.com/4irik/83732a02ea7b6c0b85bf40ab0619aab1">https://gist.github.com/4irik/83732a02ea7b6c0b85bf40ab0619aab1</a></p>
+    <section id="comments">
+      <h2>Comments</h2>
+      <p><a href="https://github.com/4irik/log/issues">Comments on GitHub</a></p>
+    </section>
+    <script src="../comments.js"></script>
+  </body>
+</html>
